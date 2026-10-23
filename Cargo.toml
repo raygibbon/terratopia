@@ -1,0 +1,8 @@
+[package]
+name = "terratopia"
+version = "0.1.0"
+edition = "2024"
+description = "A deterministic terminal planetary exploration game powered by Terrabox"
+
+[dependencies]
+terrabox = { path = "../terrabox/crates/terrabox" }
