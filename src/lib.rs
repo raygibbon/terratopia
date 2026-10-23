@@ -1,8 +1,12 @@
 pub mod camera;
+pub mod crafting;
 pub mod entities;
 pub mod exploration;
 pub mod game;
 pub mod input;
+pub mod inventory;
+pub mod persistence;
+pub mod planet;
 pub mod renderer;
 pub mod survival;
 pub mod ui;

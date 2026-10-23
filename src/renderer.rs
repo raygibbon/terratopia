@@ -42,11 +42,21 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
                             map.put_char(x, y, '?', style(8, 0));
                             continue;
                         }
-                        let tile = game.world.tile(wx, wy);
+                        let tile = game.camp.tile(&mut game.world, wx, wy);
                         let (mut glyph, mut fg, mut bg) = appearance(tile.biome);
                         if let Some(site) = tile.landmark {
                             glyph = site.glyph();
                             fg = site.colour();
+                            bg = 0;
+                        }
+                        if (wx, wy) == game.camp.ship() {
+                            glyph = 'A';
+                            fg = 15;
+                            bg = 0;
+                        }
+                        if game.camp.sheltered((wx, wy)) {
+                            glyph = 'H';
+                            fg = 11;
                             bg = 0;
                         }
                         let tile_style = if visibility == Visibility::Remembered {
@@ -82,7 +92,7 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
                     &format!("+{} cells / +{} sites", report.new_cells, report.new_sites),
                     style(7, 0),
                 );
-                panel.put_str(0, 2, "i Iron  c Copper  s Silica", style(15, 0));
+                panel.put_str(0, 2, "i Iron k Carbon v Crystal", style(15, 0));
                 panel.put_str(0, 3, "# Ruins  O Arch  % Crater", style(7, 0));
                 for (row, site) in report.sites.iter().take(3).enumerate() {
                     panel.put_str(
@@ -112,7 +122,7 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
             canvas.put_str(3, 4, "A world beyond the last signal.", style(7, 0));
             if game.state == State::MainMenu {
                 canvas.put_str(3, 6, "[Enter / N] New world", style(15, 0));
-                canvas.put_str(3, 7, "[Q / Esc]   Quit", style(7, 0));
+                canvas.put_str(3, 7, "[L / F9] Load   [Q / Esc] Quit", style(7, 0));
             } else {
                 canvas.put_str(3, 6, &format!("Planet {}", game.planet), style(11, 0));
                 canvas.put_str(3, 7, &format!("Seed {}", game.world.seed()), style(7, 0));
@@ -121,9 +131,12 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
             canvas.put_str(
                 3,
                 size.height - 2,
-                "Planetary exploration / Phase 1.1",
+                "Planetary survival / Phase 2",
                 style(8, 0),
             );
+        }
+        State::Inventory | State::Crafting | State::Help | State::Dead => {
+            crate::ui::screen(&mut canvas, game)
         }
         State::Quit => {}
     }

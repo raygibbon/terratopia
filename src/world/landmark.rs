@@ -5,6 +5,8 @@ pub enum Resource {
     Iron,
     Copper,
     Silica,
+    Carbon,
+    Crystal,
 }
 impl Resource {
     pub fn name(self) -> &'static str {
@@ -12,6 +14,8 @@ impl Resource {
             Self::Iron => "Iron",
             Self::Copper => "Copper",
             Self::Silica => "Silica",
+            Self::Carbon => "Carbon",
+            Self::Crystal => "Crystal",
         }
     }
     pub fn glyph(self) -> char {
@@ -19,6 +23,8 @@ impl Resource {
             Self::Iron => 'i',
             Self::Copper => 'c',
             Self::Silica => 's',
+            Self::Carbon => 'k',
+            Self::Crystal => 'v',
         }
     }
     pub fn colour(self) -> u8 {
@@ -26,6 +32,8 @@ impl Resource {
             Self::Iron => 15,
             Self::Copper => 11,
             Self::Silica => 14,
+            Self::Carbon => 10,
+            Self::Crystal => 12,
         }
     }
 }
@@ -82,7 +90,11 @@ pub fn at(seed: u64, x: i64, y: i64) -> Option<Site> {
         3 => Landmark::Deposit(Resource::Silica),
         4 => Landmark::Arch,
         5 => Landmark::Crater,
-        _ => return None,
+        _ => Landmark::Deposit(if h & 128 == 0 {
+            Resource::Carbon
+        } else {
+            Resource::Crystal
+        }),
     };
     let ax = i128::from(gx) * 24 + 2 + i128::from((h >> 8) % 20);
     let ay = i128::from(gy) * 24 + 2 + i128::from((h >> 16) % 20);

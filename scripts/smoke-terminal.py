@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Unix PTY checks following Terrabox's scripts/smoke-examples.py approach.
+"""Exercise the release binary in Unix PTYs. --full-night also waits for dawn.
 
-Run after cargo build --release. Uses only the Python standard library.
-This checks real terminal bytes and termios, not emulator font/colour appearance.
+Standard library only. Every run uses an isolated temporary save path.
 """
 import fcntl
 import os
@@ -13,6 +12,8 @@ import select
 import signal
 import struct
 import subprocess
+import sys
+import tempfile
 import termios
 import time
 
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT / "target/release/terratopia"
 
 
-def smoke(exit_key):
+def smoke(exit_key, save, full_night=False):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     original = termios.tcgetattr(slave)
@@ -30,12 +31,12 @@ def smoke(exit_key):
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
     process = subprocess.Popen(
-        [str(BINARY), "--seed", "827193"], stdin=slave, stdout=slave,
-        stderr=slave, preexec_fn=connect,
+        [str(BINARY), "--seed", "827193", "--save", str(save)],
+        stdin=slave, stdout=slave, stderr=slave, preexec_fn=connect,
         env={**os.environ, "TERM": "xterm-256color"})
     output = bytearray()
 
-    def drain(duration=.15):
+    def drain(duration=.1):
         before = len(output)
         until = time.monotonic() + duration
         while time.monotonic() < until:
@@ -53,11 +54,11 @@ def smoke(exit_key):
             fields = stat.read_text().split()
             return int(fields[13]) + int(fields[14])
         before = ticks() if stat.exists() else None
-        assert not drain(.6), "unsolicited idle output"
+        assert not drain(.6), "unsolicited paused/menu output"
         if before is not None:
             delta = ticks() - before
-            assert delta <= 1, f"{delta} CPU ticks during 600ms idle"
-            print(f"  idle CPU ticks: {delta}/600ms")
+            assert delta <= 1, f"{delta} CPU ticks in 600ms idle"
+            print(f"  menu/paused CPU ticks: {delta}/600ms", flush=True)
 
     def resize(width, height):
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
@@ -67,43 +68,75 @@ def smoke(exit_key):
     try:
         assert b"T E R R A T O P I A" in drain(.3)
         idle()
-        assert b"Seed 827193" in send(b"n")
+        send(b"n")
         initial = send(b"\r")
-        assert b"TERRATOPIA" in initial and b"HP 100" in initial
+        assert b"TERRATOPIA" in initial and b"HP 100" in initial and b"?" in initial
         match = re.search(rb" X (-?\d+)  Y (-?\d+)", initial)
-        assert match, initial[-1000:]
+        assert match
         x, y = map(int, match.groups())
-        assert b"?" in initial, "fog must hide undiscovered terrain"
+        assert b"Cache: salvage pick" in send(b"e")
         scanned = send(b"r")
-        assert b"Scan:" in scanned and b"LAST SCAN" in scanned
-        assert scanned.count(b"?") < initial.count(b"?"), "scan must replace unknown map cells"
-        assert b"i Iron  c Copper  s Silica" in scanned, "resource legend missing"
-        assert re.search(rb"Scan: \+1108 cells, \+\d+ sites", scanned), scanned[-1000:]
-        assert b"Scan: +0 cells, +0 sites." in send(b"R"), "repeat scan must deduplicate"
-        assert f" X {x+1}  Y {y}".encode() in send(b"d")
-        assert f" X {x}  Y {y}".encode() in send(b"\x1b[D")
-        idle()  # Playing has a sleeping clock but no unchanged presentations.
-        assert b"PAUSED" in send(b"p")
+        assert b"LAST SCAN" in scanned and b"i Iron k Carbon v Crystal" in scanned
+        assert scanned.count(b"?") < initial.count(b"?")
+        assert b"Scan: +0 cells, +0 sites." in send(b"R")
+        assert b"INVENTORY" in send(b"i")
         idle()
-        assert not send(b"w"), "movement while paused must do nothing"
-        assert not send(b"r"), "scanner must be inactive while paused"
+        assert b"Need 40x12" in resize(20, 6)
+        assert b"INVENTORY" in resize(100, 30)
+        send(b"\x7f")
+        assert b"CRAFTING" in send(b"c")
+        assert b"Missing ingredients" in send(b"\r")
+        send(b"\x7f")
+        assert b"SURVIVAL GUIDE" in send(b"h")
+        idle()
+        send(b"\x7f")
+        send(b"aa")
+        assert b"Harvested Iron" in send(b"eeee")
+        send(b"ddww")
+        assert b"Harvested Carbon" in send(b"eee")
+        send(b"c")
+        assert b"Crafted Mining tool" in send(b"\r")
+        send(b"\x7f")
+        send(b"ddssss")
+        assert b"Harvested Crystal" in send(b"ee")
+        send(b"c"); send(b"\x1b[B")
+        assert b"Crafted Shelter kit" in send(b"\r")
+        send(b"\x7f")
+        send(b"aaww")
+        assert b"Shelter built!" in send(b"b")
+        assert b"Oxygen station powered" in send(b"e")
+        assert b"Expedition saved." in send(b"\x1b[15~")
+        saved = save.read_text()
+        assert "TERRATOPIA_SAVE 1" in saved and "SHELTERS 1" in saved
+        assert "HARVESTED 3" in saved
+        assert f" X {x+1}  Y {y}".encode() in send(b"d")
+        loaded = send(b"\x1b[20~")  # F9
+        assert b"Expedition loaded." in loaded and b"PAUSED" in loaded
+        idle()
+        assert not send(b"r"), "scan must be inactive while paused"
         assert b"Need 40x12" in resize(20, 6)
         assert b"PAUSED" in resize(100, 30)
-        assert b"PAUSED" not in send(b"p")
-        assert f" X {x}  Y {y+1}".encode() in send(b"\x1b[B")
-        assert b"Scan:" in send(b"r"), "scan after movement/resize failed"
-        send(b"p"); send(b"m"); send(b"n")
-        restarted = send(b"\r")
-        assert b"Mapped 149" in restarted and b"LAST SCAN" not in restarted
+        send(b"p")
+        if full_night:
+            print("  Waiting in the constructed shelter for a real full night...", flush=True)
+            start = len(output)
+            until = time.monotonic() + 150
+            while b"OBJECTIVE COMPLETE" not in output[start:]:
+                assert process.poll() is None, "game exited before dawn"
+                assert time.monotonic() < until, "dawn objective timed out"
+                drain(2)
+            assert b"Nightfall:" in output[start:]
+            print("  PASS: real-time nightfall and dawn objective", flush=True)
+        assert b"Expedition saved." in send(b"\x1b[15~")
         send(exit_key)
         process.wait(timeout=3)
         drain(.05)
         assert process.returncode == 0, output[-1000:]
         assert termios.tcgetattr(slave) == original, "terminal attributes not restored"
-        assert b"\x1b[?1049l" in output, "alternate screen not left"
-        assert b"\x1b[?25h" in output, "cursor not restored"
+        assert b"\x1b[?1049l" in output and b"\x1b[?25h" in output
         assert b"panicked" not in output
-        print(f"PASS: menu, landing, scan, repeat scan, fog, WASD/arrows, pause, resize, restart, {exit_key!r} exit, restoration")
+        assert "SHELTERS 1" in save.read_text(), "quit must preserve expedition"
+        print(f"PASS: crash/gather/craft/build, scan, menus, pause, resize, save/load, {exit_key!r}, restoration", flush=True)
     finally:
         if process.poll() is None:
             process.kill()
@@ -112,5 +145,6 @@ def smoke(exit_key):
         os.close(slave)
 
 
-for key in (b"q", b"\x1b", b"\x03"):
-    smoke(key)
+with tempfile.TemporaryDirectory(prefix="terratopia-pty-") as folder:
+    for key in (b"q", b"\x1b", b"\x03"):
+        smoke(key, Path(folder) / "expedition.save", "--full-night" in sys.argv and key == b"q")

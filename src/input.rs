@@ -8,10 +8,25 @@ pub enum Action {
     Scan,
     Menu,
     Quit,
+    QuitWithoutSave,
+    Interact,
+    Build,
+    UseOxygen,
+    Inventory,
+    Craft,
+    Help,
+    Back,
+    Discard,
+    Save,
+    Load,
 }
 pub fn action(event: KeyEvent) -> Option<Action> {
     if event.modifiers.contains(Modifiers::CTRL) {
-        return matches!(event.key, Key::Char('c' | 'C' | 'q' | 'Q')).then_some(Action::Quit);
+        return match event.key {
+            Key::Char('q' | 'Q') => Some(Action::QuitWithoutSave),
+            Key::Char('c' | 'C') => Some(Action::Quit),
+            _ => None,
+        };
     }
     if event.modifiers.contains(Modifiers::ALT) {
         return None;
@@ -22,6 +37,16 @@ pub fn action(event: KeyEvent) -> Option<Action> {
         Key::Left | Key::Char('a' | 'A') => Some(Action::Move(-1, 0)),
         Key::Right | Key::Char('d' | 'D') => Some(Action::Move(1, 0)),
         Key::Char('r' | 'R') => Some(Action::Scan),
+        Key::Char('e' | 'E') => Some(Action::Interact),
+        Key::Char('b' | 'B') => Some(Action::Build),
+        Key::Char('o' | 'O') => Some(Action::UseOxygen),
+        Key::Char('i' | 'I') => Some(Action::Inventory),
+        Key::Char('c' | 'C') => Some(Action::Craft),
+        Key::Char('h' | 'H' | '?') | Key::Function(1) => Some(Action::Help),
+        Key::Backspace => Some(Action::Back),
+        Key::Char('x' | 'X') => Some(Action::Discard),
+        Key::Function(5) => Some(Action::Save),
+        Key::Function(9) | Key::Char('l' | 'L') => Some(Action::Load),
         Key::Enter => Some(Action::Accept),
         Key::Char('n' | 'N') => Some(Action::NewWorld),
         Key::Char('p' | 'P' | ' ') => Some(Action::Pause),

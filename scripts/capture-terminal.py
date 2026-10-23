@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,11 +53,12 @@ def key(window, name):
     time.sleep(.15)
 
 def capture():
-    title = f"TerraTopia Phase 1.1 capture {os.getpid()}"
+    title = f"TerraTopia Phase 2 capture {os.getpid()}"
+    save_dir=tempfile.TemporaryDirectory(prefix="terratopia-capture-")
     proc = subprocess.Popen(["xterm", "-xrm", "*allowSendEvents:true",
         "-xrm", "*color4:#163456", "-xrm", "*color6:#36a6a6",
         "-geometry", "100x30", "-fa", "DejaVu Sans Mono", "-fs", "12",
-        "-T", title, "-e", str(ROOT / "target/release/terratopia"), "--seed", "827193"])
+        "-T", title, "-e", str(ROOT / "target/release/terratopia"), "--seed", "827193", "--save", str(Path(save_dir.name)/"capture.save")])
     try:
         for _ in range(40):
             tree = subprocess.check_output(["xwininfo", "-root", "-tree"], text=True)
@@ -73,20 +75,22 @@ def capture():
         else:
             raise RuntimeError("xterm did not create a window")
         time.sleep(.3)
-        key(target,"n"); key(target,"Return"); key(target,"r")
+        key(target,"n"); key(target,"Return"); key(target,"e")
+        for name in ["a","a","e","e","e","e","d","d","w","w","e","e","e","c","Return","BackSpace","d","d","s","s","s","s","e","e","c","Down"]:
+            key(target,name)
         OUT.mkdir(parents=True,exist_ok=True)
-        subprocess.run(["import","-window",hex(window),str(OUT / "scanner.png")],check=True)
-        # One successful move returns to local sight; the scanned area remains
-        # remembered. Capture actual game output, without compositing or edits.
-        key(target,"d")
-        subprocess.run(["import","-window",hex(window),str(OUT / "exploration.png")],check=True)
+        subprocess.run(["import","-window",hex(window),str(OUT / "crafting.png")],check=True)
+        for name in ["Return","BackSpace","a","a","w","w","b","e","r"]:
+            key(target,name)
+        subprocess.run(["import","-window",hex(window),str(OUT / "survival.png")],check=True)
         key(target,"q")
         if proc.wait(timeout=5)!=0:
             raise RuntimeError("Game exited unsuccessfully")
-        print("Captured real xterm scanner.png and exploration.png")
+        print("Captured real xterm crafting.png and survival.png")
     finally:
         if proc.poll() is None:
             proc.terminate(); proc.wait(timeout=5)
+        save_dir.cleanup()
 
 try:
     capture()

@@ -15,8 +15,8 @@ pub enum Visibility {
 }
 #[derive(Default)]
 pub struct Exploration {
-    explored: BTreeMap<ChunkKey, [u32; 32]>,
-    sites: BTreeMap<(i64, i64), Site>,
+    pub(crate) explored: BTreeMap<ChunkKey, [u32; 32]>,
+    pub(crate) sites: BTreeMap<(i64, i64), Site>,
     cells: usize,
     center: (i64, i64),
     radius: i64,
@@ -28,6 +28,14 @@ pub struct ScanReport {
     pub sites: Vec<Site>,
 }
 impl Exploration {
+    pub(crate) fn recount(&mut self) {
+        self.cells = self
+            .explored
+            .values()
+            .flat_map(|rows| rows.iter())
+            .map(|row| row.count_ones() as usize)
+            .sum();
+    }
     pub fn explored_cells(&self) -> usize {
         self.cells
     }
@@ -55,6 +63,20 @@ impl Exploration {
     /// Scan visibility lasts until the next successful move. Terrain does not
     /// occlude the sensor; mountains and water remain impassable.
     pub fn reveal(&mut self, world: &mut World, x: i64, y: i64, scan: bool) -> ScanReport {
+        self.reveal_with(x, y, scan, |wx, wy| {
+            world
+                .tile(wx, wy)
+                .landmark
+                .and_then(|_| landmark::at(world.seed(), wx, wy))
+        })
+    }
+    pub fn reveal_with(
+        &mut self,
+        x: i64,
+        y: i64,
+        scan: bool,
+        mut query: impl FnMut(i64, i64) -> Option<Site>,
+    ) -> ScanReport {
         self.center = (x, y);
         self.radius = if scan { SCAN_RADIUS } else { SIGHT_RADIUS };
         let old_cells = self.cells;
@@ -75,9 +97,7 @@ impl Exploration {
                     self.cells += 1;
                     bits[index / 32] |= mask;
                 }
-                if world.tile(wx, wy).landmark.is_some()
-                    && let Some(site) = landmark::at(world.seed(), wx, wy)
-                {
+                if let Some(site) = query(wx, wy) {
                     self.sites.insert((site.x, site.y), site);
                     nearby.insert((site.x, site.y), site);
                 }
