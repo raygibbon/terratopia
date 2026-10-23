@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-23",
+  "host": "Linux x86_64",
+  "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "seed": 827193,
+  "generator": 3,
+  "units": "milliseconds",
+  "scan_case": "full Game scan action at populated crash site",
+  "samples": [
+    {
+      "cold chunks": 42.290211,
+      "warm lookups": 11.992702,
+      "cache travel": 41.803701,
+      "scrolling logical redraws": 136.215099,
+      "scans": 50.47455,
+      "creature simulation": 4.637149,
+      "game movement": 33.697889
+    },
+    {
+      "cold chunks": 47.016646,
+      "warm lookups": 11.466884,
+      "cache travel": 48.048291,
+      "scrolling logical redraws": 146.281955,
+      "scans": 53.776098,
+      "creature simulation": 5.352033,
+      "game movement": 35.576079
+    },
+    {
+      "cold chunks": 43.4692,
+      "warm lookups": 9.962679,
+      "cache travel": 44.330981,
+      "scrolling logical redraws": 140.131612,
+      "scans": 50.797095,
+      "creature simulation": 5.080514,
+      "game movement": 34.064583
+    },
+    {
+      "cold chunks": 41.471915,
+      "warm lookups": 12.032512,
+      "cache travel": 39.117132,
+      "scrolling logical redraws": 138.005028,
+      "scans": 48.641098,
+      "creature simulation": 5.47964,
+      "game movement": 34.917101
+    },
+    {
+      "cold chunks": 43.452083,
+      "warm lookups": 11.178368,
+      "cache travel": 41.310708,
+      "scrolling logical redraws": 136.242963,
+      "scans": 47.70205,
+      "creature simulation": 5.291164,
+      "game movement": 35.135924
+    }
+  ]
+}

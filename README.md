@@ -1,238 +1,295 @@
-# TerraTopia — Planetary Survival
+# TerraTopia — Living Alien Worlds
 
-A keyboard-first, terminal-native Rust survival game using **Terrabox** for all
-input and rendering. Crash beside a damaged spacecraft, scavenge emergency
-supplies, mine resources, craft equipment, build a shelter and survive a night.
-The Phase 1.1 procedural world, fog, scanner and bounded chunk cache remain.
+A terminal-native Rust exploration and survival game, using **Terrabox** for all
+keyboard input and cell rendering. Crash-land, scavenge, gather, craft a shelter,
+survive the night, then explore a living world with alien wildlife, changing
+weather, harvestable flora and interactive ruins.
 
-No graphical frontend, secondary terminal framework, async runtime or ECS is
-used. The only dependency is the existing local Terrabox crate. Rust edition 2024.
+Phase 3 extends the existing modular game. Shared infrastructure now comes from
+**TerraGame**: fixed steps, coordinate hashing/indexing, the chunk cache, camera
+positioning and the Terrabox session adapter. There are no new third-party
+dependencies, threads, ECS, async runtime or alternative rendering backend.
+See [engine integration](docs/terragame-integration.md) for scope and compatibility.
 
-## Build and run
+## Build and start
 
-Keep both repositories alongside one another:
+Use stable Rust supporting edition 2024, with sibling repositories:
 
 ```text
 parent/
   terrabox/crates/terrabox/
+  terragame/crates/          # core, world, terminal
   terratopia/
 ```
 
 ```sh
 cargo build --release
-cargo run --release -- --seed 827193
-./target/release/terratopia --seed 827193 --save expedition.save
-./target/release/terratopia --save expedition.save --load
+cargo run --release -- --seed 827193       # temperate example
+cargo run --release -- --seed 2            # toxic jungle example
+./target/release/terratopia --seed 2 --save jungle.save
+./target/release/terratopia --save jungle.save --load
 ```
 
-Without `--seed`, a clock-derived u64 seed is displayed in the HUD. Seeds accept
-0 through 18446744073709551615. The default save is `terratopia.save` in the
-working directory. `--save` selects a different file. The containing directory
-must exist. On Windows use `target\release\terratopia.exe` in an attached console.
-On Unix use a real controlling terminal with a supported TERM/terminfo entry.
-Linux, Windows Terminal, macOS Terminal, SSH and Termux remain portability targets;
-see the validation report for the hosts actually tested.
+No seed selects a clock-derived u64 seed, displayed in the interface. The default
+save is `terratopia.save` in the current directory; `--save` selects another file
+whose parent directory must exist. On Windows use `target\release\terratopia.exe`
+in an attached console. Unix requires a real controlling TTY and supported TERM.
+Linux, Windows Terminal, macOS Terminal, SSH and Termux are portability targets;
+the [validation report](docs/validation.md) distinguishes actual runtime tests
+from compilation checks.
 
-## First expedition
+## First-session survival loop
 
-1. Enter/N opens the landing screen; Enter lands. The HUD shows your objective.
-2. Press **E** beside the spacecraft `A`. The cache contains a salvage pick,
-   two oxygen canisters and one battery. **H** opens a scrollable survival guide.
-3. From the initial position, move **two cells west** to iron `i`. E four times
-   gathers eight iron. Move two east and **two north** to carbon `k`; E three
-   times gathers six carbon. Each successful action gathers two units.
-4. Open **C**, select **Mining tool** and press Enter. Backspace closes the
-   crafting screen. Tools work automatically while carried.
-5. The crystal `v` is **two east and two south of the initial position**. Stand
-   there and press E twice for four crystal. Crystal needs the crafted tool.
-6. Open C, select **Shelter kit**, Enter, then Backspace. Return to the initial
-   position and press **B** to build a shelter `H` underneath you.
-7. Press **E** inside H to spend the cache battery and power its oxygen station
-   for 120 seconds. Remain **on H** through an entire night. The first night runs
-   from active second 80 to 120; dawn completes the objective. If you miss part
-   of it, stay through the next full night instead.
+1. Enter/N, then Enter to land. **E beside A** collects a salvage pick, two
+   oxygen canisters and a battery. **H** opens a guide; menus pause time.
+2. From the initial position, go **two west** to iron `i`; E four times yields
+   eight iron. Go two east and **two north** to carbon `k`; E three times yields
+   six carbon. Every mineral action gathers up to two units.
+3. **C**, select Mining tool, Enter, Backspace. Tools work while carried.
+4. Crystal `v` is **two east and two south of the initial position**. E twice
+   gathers four crystal, using the crafted tool.
+5. C, select Shelter kit, Enter, Backspace. Return to the initial position and
+   **B** to build shelter `H` under the player. E uses the emergency battery to
+   power the shelter's oxygen station for 120 active seconds.
+6. Stay **on H** for an entire night: active second 80 through 120. If you miss
+   part of the first night, remain through the next complete night. Dawn reports
+   success; you can keep exploring afterwards.
 
-Inventory, crafting, help and pause screens freeze time, so you can plan without
-losing oxygen. Shelter protects even when unpowered; power supplies oxygen.
-Oxygen canisters are emergency reserves: **O** restores up to 50 oxygen.
-Completing the objective leaves the game playable. There is no spaceship travel.
+Every new seed has a safe 9x9 crash clearing, reachable starter nodes and a
+protected spacecraft field. It neutralises planetary climate/radiation/toxic
+hazards and storms locally, while preserving atmospheric oxygen rules. Night
+can still be mildly cold outside shelter. The starter resource capacities and
+costs are fixed, so all seven planet types can complete this loop. Shelter
+protection is separate from the crash field; camping in the field alone does
+not complete the shelter objective.
 
-All seeds receive a reachable 9x9 crash clearing and these three starter nodes,
-relative to their deterministic landing position. This small expedition overlay
-does not edit or invalidate generated terrain. It guarantees the first loop does
-not depend on finding a lucky continent or resource arrangement.
+## Explore the living world
 
-## Controls
+After building, rest with **Z** to replenish energy before leaving. A short
+walkable survey trail extends east of a new crash site. Relative to the initial
+position: medicinal flora at `(5,0)`, glow fungus at `(7,1)`, venom vegetation at
+`(9,-1)`, and an abandoned ruin at `(12,0)`. These teaching sites supplement the
+natural planet-wide generation. Legacy expeditions retain their original terrain
+and have natural ecology, without the added teaching trail.
 
-| Key | Action |
-| --- | --- |
-| Arrows / WASD | Move one cardinal tile per key event |
-| E | Harvest the current deposit; scavenge beside A; power a station at A/H |
-| R | Scan radius 20 and report discoveries |
-| I | Inventory: Up/Down select, Enter use, X discard entire stack |
-| C | Crafting: Up/Down select, Enter craft; owned/required ingredients shown |
-| B | Build a carried shelter kit on clear ground underneath the player |
-| O | Use an oxygen canister |
-| H / ? / F1 | Help, current objective and recent event log; Up/Down scroll |
-| Backspace | Close inventory/crafting/help |
-| P / Space | Pause/resume; also closes a sub-screen |
-| Enter while paused | Resume |
-| M while paused / on landing screen | Main menu |
-| Enter / N in main menu or death screen | New expedition landing screen |
-| F5 | Save the current expedition |
-| F9 / L | Load the selected save file, initially paused |
-| Q / Escape / Ctrl+C | Save the active expedition and quit safely |
-| Ctrl+Q | Quit without saving, including when a save path is unwritable |
+Scan with **R** to discover nearby plants, minerals, ruins, wildlife and storm or
+atmospheric anomalies. **M while playing** opens a paused survey: atmosphere,
+climate, gravity, hazards, density/richness, forecast, visible species, scan
+contacts and recovered records. The scanner shows a small local circle, never
+the whole world. The map uses coloured current sight, grey remembered terrain
+and dark `?` for unknown cells. Moving returns a scan to normal sight.
 
-A failed save keeps the game open and shows the error. F5 retries; Ctrl+Q exits
-without a save. Loading a missing/invalid file preserves the current live game.
-New expedition restarts the selected seed with fresh inventory and world changes.
-A new landing overwrites the same save on the next save/normal exit, so select
-separate `--save` paths to retain multiple expeditions. Death stops time; F9 can
-reload an earlier living save. Quitting normally after death saves that dead state.
+Three creature categories have distinct glyphs:
 
-## Survival rules
-
-- Oxygen falls by one every three active seconds away from a powered station.
-  At zero, suffocation removes three health per second. A red warning appears at
-  25 oxygen. A canister restores 50, capped at 100; full tanks preserve the item.
-- Batteries power an oxygen station for 120 seconds each. Use one from inventory,
-  or press E beside the ship/inside a shelter. Oxygen refills by three per second
-  on or cardinally adjacent to a powered station. Stored power drains in active
-  time even when you walk away; pause freezes it. Fuel caps at 600 seconds.
-- Each day lasts 120 active seconds: 80 daylight, then 40 night. Night subtracts
-  20C from biome temperature and doubles thermal/radiation damage frequency.
-- Grassland is 18C, forest 14C, desert 44C, mountains -12C, water 5C, frozen
-  terrain -30C and wasteland 24C. Mountains and water remain impassable.
-- Without protection, temperatures outside 0..38C cause two damage every eight
-  seconds by day/four at night. Wasteland radiation uses the same damage rule.
-  Carrying a thermal suit extends tolerance to -40..65C and blocks radiation.
-  Extremely cold frozen nights still require shelter.
-- Standing on a shelter tile protects against all environmental hazards, holds
-  the interior at 18C and slowly heals if oxygen is above 20. Adjacent ground
-  receives station oxygen when powered, but not shelter protection.
-- Movement costs one energy; harvesting costs two. Energy slowly regenerates,
-  faster inside shelter. Zero energy currently does not prevent actions.
-- The mission requires one uninterrupted complete night inside shelter, alive
-  at dawn. Its progress and completion flag are saved.
-
-## Gathering, inventory and recipes
-
-| Resource | Glyph | Tool |
+| Glyph | Behaviour | Response |
 | --- | --- | --- |
-| Iron | `i` | Salvage pick or mining tool |
-| Carbon | `k` | Hands |
-| Crystal | `v` | Crafted mining tool |
-| Copper | `c` | Salvage pick or mining tool |
-| Silica | `s` | Salvage pick or mining tool |
+| `g` | Passive grazer | Flees when you come within four cells |
+| `d` | Defensive territorial animal | Attacks when approached within two cells or provoked |
+| `p` | Predator | Detects/chases nearby players, disengages after escape |
+| `x` | Unlooted corpse | Stand on it and E to recover organics |
 
-All have distinct glyphs and colours; identity never depends solely on colour.
-Each deposit **cell** contains 12 units. Fully mined cells lose their marker;
-partly mined cells retain their remaining amount. Changing/evicting terrain
-chunks never replenishes them. Copper and silica remain discoverable and
-collectible, but have no recipes in this first loop.
+Species names, health, speed, preferred biome, sensing range and storm resistance
+come from separate deterministic seed streams. Predators/defenders announce
+aggression, move every few seconds and attack when cardinally adjacent. Move
+away to escape. **F** attacks an adjacent creature for eight damage and costs
+four energy. Creatures block movement and cannot stack, enter impassable ground,
+occupy the player cell or enter shelter/the crash clearing. Shelters and the
+crash field block creature attacks. Grazer/territory movement uses simple local
+steps, not complex pathfinding.
 
-Inventory has ten slots. Materials, canisters and batteries stack to 20; tools,
-suits and shelter kits use one slot each. Crafting and scavenging are atomic:
-missing ingredients or insufficient output capacity never consume supplies.
-Harvesting with a full pack does not deplete the deposit. X permanently discards
-the selected stack; keep your tools unless you have a replacement.
+Only a Manhattan radius of 48 cells around the player is active, capped at 64
+entities. Untouched ambient animals can respawn at their deterministic home
+when revisited. Player injuries, kills, corpse loot and storm injuries persist;
+those records are retained when their region leaves active simulation. Saved
+active positions/moods also resume correctly. Offscreen creatures are suspended,
+not simulated across the planet.
 
-| Crafted item | Ingredients |
+## Planet profiles and weather
+
+New worlds use generator **3**. Seven archetypes derive from the seed:
+temperate terrestrial, frozen wasteland, desert, toxic jungle, irradiated,
+volcanic and barren rocky. A profile includes atmospheric composition, oxygen,
+climate base/night variation, gravity, radiation, toxicity, water, vegetation,
+wildlife and mineral richness. These are functional values:
+
+- Water, temperature and vegetation shift the original coherent climate fields
+  before biome classification, creating different planetary terrain mixes.
+- Richness changes natural deposit capacity; vegetation and wildlife abundance
+  change suitable-site frequency. Habitat restrictions still apply.
+- Climate and small local biome offsets set temperature; night subtracts the
+  planet's variation, then weather modifies it. Radiation/toxicity add exposure.
+- Outside the crash clearing, gravity makes movement cost one or two energy.
+- Clean atmospheres with at least 18% oxygen slowly restore oxygen. Low-oxygen
+  or toxic atmospheres consume it; very thin atmospheres consume it faster.
+
+Weather is regional and deterministic from seed, biome and active ticks. Each
+64-second regional period has clear weather, an eight-second forecast before
+onset, then up to 24 seconds of weather that ramps and fades in severity. Mild
+wooded regions have more clear periods and weaker storms; exposed or hostile
+worlds have more frequent, stronger weather. Some periods stay clear. Terrain and planet archetype choose the condition:
+
+| Weather | Gameplay |
+| --- | --- |
+| Clear | Normal sight 7 / scan 20 |
+| Rain | Colder; sight 5 / scan 16 |
+| Dust storm | Warmer; sight 4 / scan 8 |
+| Snowstorm | Much colder; sight 4 / scan 10 |
+| Toxic storm | Unfiltered damage and unsafe breathing; sight 5 / scan 12 |
+| Radiation storm | Unprotected damage; sight 5 / scan 12 |
+
+The HUD retains a forecast countdown, and the event log warns before onset.
+Crossing into an already stormy region can expose you immediately. Return to H
+or the crash field before a severe storm; weather keeps progressing while you
+rest. Visibility changes update fog without erasing exploration memory. There
+are no particle floods or high-frequency weather animations.
+
+## Ecology, loot and survival equipment
+
+| Plant | Glyph | Yield / effect |
+| --- | --- | --- |
+| Ribbon fern | `&` | Two organics |
+| Glow fungus | `"` | Two organics; rare frozen/forest/wasteland flora |
+| Venom frond | `!` | Two organics; three contact damage without an active filter |
+| Medicinal starleaf | `+` | Two medicinal herbs |
+
+Stand on a plant and E. Plants have deterministic clustered placement and biome
+restrictions. Harvested cells do not regrow in this phase; depletion survives
+save/load and chunk eviction. An unsuccessful full-pack harvest changes nothing.
+
+Stand on **#** and E to salvage a ruin. Each seed/anchor deterministically yields
+technology salvage, a battery or oxygen canister, and crystal. Supplies are
+awarded atomically and once per ruin, including multi-cell structures. Looted
+state and recovered planetary records survive saving/eviction. Salvage is useful
+for survival; technology components are collectible but have no recipe yet.
+
+Inventory remains ten slots. Materials, supplies and consumables stack to 20;
+tools/suits/kits occupy a slot each. Up/Down select, Enter uses, X discards a
+whole stack. Tools/suits apply while carried. Capacity or ingredient failures
+never consume items, nodes, plants or loot.
+
+| Recipe | Ingredients |
 | --- | --- |
 | Mining tool | 3 iron, 2 carbon |
 | Shelter kit | 4 iron, 4 carbon, 2 crystal |
 | Oxygen canister | 2 carbon, 1 crystal |
 | Battery | 1 iron, 1 crystal |
 | Thermal suit | 3 carbon, 1 crystal |
+| Medical kit | 2 herbs, 1 carbon; heals 35 |
+| Hazard filter | 2 organics, 1 crystal; 120 active seconds of toxic protection |
+| Energy pack | 2 organics, 1 carbon; restores 40 energy |
 
-Shelters occupy one walkable cell. Build away from the spacecraft and landmark
-markers; a fully mined deposit is clear ground. A kit includes an initially
-unpowered oxygen station. There is no base editor, tool durability or equipment
-slot management in this iteration.
+Iron/copper/silica need a pick or mining tool; crystal needs the crafted tool;
+carbon can be gathered by hand. Starter cells contain 12 units. Natural capacity
+scales with mineral richness (bounded 6..24). Glyphs `i/k/v/c/s` identify iron,
+carbon, crystal, copper and silica without relying on colour. Copper/silica and
+technology have no additional recipes in this iteration.
 
-## Interface and exploration
+Health, oxygen and energy all matter. Movement spends energy, mineral/plant
+harvesting costs two/three, ruin salvage two, and combat four. Insufficient energy
+blocks the action and begins resting; ordinary waiting also recovers slowly, so
+zero energy cannot permanently lock movement. Z toggles faster resting: five
+energy/second, or eight in shelter. Rest does **not** stop wildlife or weather.
 
-![Actual Phase 2 terminal survival capture](assets/screenshots/survival.png)
+Oxygen drains by one every three active seconds in non-breathable air, or every
+two in very thin air; breathable conditions restore one every six seconds. O
+uses a canister (+50). At zero oxygen, suffocation costs three health/second.
+A powered A/H station restores three oxygen/second on its cell or cardinally
+adjacent. Batteries add 120 seconds of fuel, capped at 600. Shelter protects only
+when standing **on H**, even though station oxygen reaches adjacent cells.
 
-[Crafting screenshot](assets/screenshots/crafting.png). These are unedited Linux
-xterm captures of the release binary, not generated artwork. See the
-[capture guide](assets/screenshots/README.md).
+Thermal suits extend temperature tolerance from 0..38C to -40..65C and protect
+against radiation. Filters protect against atmospheric toxicity, toxic storms
+and venom plants. Extreme cold can still require shelter. Environmental damage
+is evaluated every eight seconds by day/four at night; multiple exposures combine
+in one testable calculation. Shelter holds 18C, blocks exposure/creature damage
+and heals slowly if oxygen is sufficient. Full health/energy/oxygen preserve
+consumables; unused filters can be stacked for up to 240 seconds of protection.
 
-Compact explanatory layout (not a runtime capture):
+## Keyboard and interface
 
-```text
- TERRATOPIA | Vesper-769 | Seed 827193
- HP 100  O2 100  Energy 80 | Day 1 DAY 12s | Mapped ...
- X 0  Y 0 | Grassland 18C SHELTER | Stay on H for one full night
-?????????;;;;;?????????
-?????......k....???????
-?????....i.@A..v???????
-?????..........???????
-Shelter built! Stay on H through a full night. Battery powers oxygen.
-E Gather | I Pack | C Craft | B Build | O O2 | R Scan | H Help | P Pause
-```
+| Key | Action |
+| --- | --- |
+| WASD / arrows | One cardinal movement per key event |
+| E | Interact, gather, salvage, scavenge or power a station |
+| F | Attack adjacent wildlife |
+| Z | Toggle resting while the simulation continues |
+| R | Local scan, including wildlife/flora/anomalies |
+| M while playing | Paused planet/exploration survey |
+| I / C | Inventory / crafting (time paused) |
+| B / O | Build carried shelter kit / use oxygen canister |
+| H / ? / F1 | Help, current objective and recent events |
+| Backspace | Close a modal; Up/Down scroll/select; Enter confirm |
+| P / Space | Pause/resume (or close a modal) |
+| Enter while paused | Resume |
+| M while paused | Main menu, retaining the original control |
+| F5 / F9 or L | Save / load (loaded games start paused) |
+| Q / Escape / Ctrl+C | Save and quit |
+| Ctrl+Q | Exit without saving, including after an unwritable-path error |
 
-The camera follows the player independently of terminal dimensions. Unknown
-cells are dark `?`, remembered terrain is grey, and current sight is coloured.
-Normal sight has radius 7; R scans radius 20 until the next successful move.
-The scan panel shows the three nearest currently present signals. Depleted
-cells disappear from scan results; historical discovery counts are retained.
-Ruins `#`, basalt arches `O` and craters `%` remain decorative landmarks.
-Grass `.`, forest `T`, desert `:`, mountains `^`, water `~`, ice `*` and wasteland
-`;` retain the Phase 1 terrain vocabulary. Ship `A`, shelter `H` and player `@`
-are expedition overlays.
+80x24 is the primary target. Three HUD rows show planet, biome, weather/countdown,
+temperature, vitals, nearby creature count and compact objective. M provides the
+longer data without crowding the map. Below 40x12 a resize message replaces the
+view; state is retained. Long coordinates/lines may clip in narrow terminals.
 
-The HUD shows oxygen/health warnings, biome, temperature, day/night and objective.
-H also displays the last six event messages. Below 40x12, a resize message replaces
-the map. State persists across resize; long HUD/help lines clip in narrow windows.
-80x24 or 100x30 is recommended. Terminal themes determine actual palette colours.
+![Actual Phase 3 gameplay](assets/screenshots/living.png)
 
-## Determinism and persistence
+[Planet survey](assets/screenshots/planet-survey.png) ·
+[Actual toxic storm](assets/screenshots/storm.png) ·
+[Crafting](assets/screenshots/living-crafting.png)
 
-A u64 seed and signed i64 coordinates feed integer coherent elevation,
-temperature and moisture noise. The original three weighted octaves (128/64/32)
-and biome classification remain unchanged. Aligned chunk generation reuses
-lattice samples without changing fixed-point rounding. Chunks are 32x32, lazy,
-and cached with a 128-chunk distance-based bound. Negative coordinates use
-Euclidean division; checked movement and i128 geometry handle world edges.
+These are real xterm captures, not mockups or generated art. See the
+[capture guide](assets/screenshots/README.md). Terrain retains `. T : ^ ~ * ;`,
+landmarks `# O %`, ship A, shelter H and player @. Only currently visible wildlife
+is drawn; remembered map cells never display stale creature positions.
 
-Landmarks belong to a separate coordinate grid. Existing iron/copper/silica,
-ruins and geological placements remain; formerly empty regions now supply
-carbon or crystal. Generation order, viewport size and cache contents do not
-affect placement. Crash clearing, structures and harvested amounts live in
-`Camp`, separately from immutable base terrain. Exploration masks/site records
-are likewise independent of the terrain cache.
+## Saves and compatibility
 
-Saves use a strict text format headed `TERRATOPIA_SAVE 1` and `GENERATOR 2`.
-They store seed, coordinates, health/oxygen/energy, active ticks, inventory,
-cache/power state, shelters, partial/full harvesting, night-objective progress,
-exploration masks and historical discoveries. Loaded games start paused with
-normal sight; the transient last-scan panel/event history is not serialized.
-No offline time elapses. Unsupported versions, malformed/truncated data and
-out-of-range records are rejected before replacing the live game.
+Current files use **TERRATOPIA_SAVE 2** and explicitly store generator **2 or 3**.
+Schema 1 / generator 2 files are imported with their **exact original terrain**,
+seed, coordinates, inventory, shelters, resources, fog and night progress. Legacy
+worlds use neutral legacy planetary parameters; their new ecology/weather layer
+is additive. They do not silently switch to generator 3 terrain.
 
-Writes use an exclusive temporary file beside the target, flush it, then rename
-over the save. Failures leave the prior save intact. This is a local-file save,
-not cloud synchronization or a guarantee against every filesystem/power-loss
-scenario. Limits: 8 MiB, 1,000 shelters, 100,000 harvested cells, 20,000 fog chunks
-and 100,000 discoveries. Oversized expeditions report save failure rather than
-silently discarding data. There are no save migrations yet.
+On the first write over a schema-1 file, an exact `.v1.bak` copy is created,
+including original line endings. A conflicting different backup causes a clear
+save error rather than replacement. The upgraded file retains generator 2. New
+expeditions use generator 3; there are no migrations from unknown future schemas
+or unsupported generators. A genuine pre-change fixture tests this strategy.
 
-## Architecture and checks
+New saves include plants, ruin loot, filters, resting, active wildlife, relevant
+persistent creature state and scanned identities. Weather reconstructs exactly
+from saved time/position/seed; no offline time passes. Transient scan panels and
+event text are rebuilt. The full replacement is parsed/validated before the
+live game changes, and loaded games start paused. Q normally auto-saves; a failed
+save keeps the game open so F5 can retry or Ctrl+Q can exit without writing.
 
-`main.rs` owns CLI, Terrabox lifetime, event waits and save I/O. `game.rs` handles
-states/actions and bounded fixed updates. `survival/` owns environmental/vital
-rules; `inventory.rs` and `crafting.rs` own stacks and recipes; `planet.rs` owns
-expedition overlays; `persistence.rs` owns versioned encoding/validation/files.
-`world/` remains pure deterministic terrain/landmarks plus cache. `exploration.rs`
-owns knowledge, and `renderer.rs`, `camera.rs`, `ui/` draw Terrabox surfaces.
+Writes use an exclusive same-directory temporary file, flush and rename; failed
+writes preserve the prior save. Limits: 8 MiB; 1,000 shelters; 100,000 harvested
+mineral/plant cells, fog discoveries or scanned creatures; 20,000 fog chunks;
+10,000 looted ruins and persistent creature records; 64 active creatures.
+Unsupported/malformed/oversized data is rejected. There is no cloud sync or
+universal filesystem/power-loss guarantee. Use separate `--save` paths for
+multiple expeditions; a fresh landing uses the selected file on the next save.
+Normal exit after death saves the dead state; F9 can load an earlier living save.
 
-Simulation uses fixed 250ms steps, at most four catch-up steps after a stall.
-Input, simulation and rendering remain separate. Active survival redraws once
-per second or on input/resize; menu, pause and sub-screens block without timer
-wakes. Terminal RAII restores state on normal exit and unwinding; forced
-termination/abort remains outside that guarantee.
+## Architecture, validation and scope
+
+Immutable generation lives in `world/` (profile, climate noise, terrain,
+landmarks, flora) with a bounded 128-chunk cache. `planet.rs` owns expedition
+modifications and loot; `wildlife.rs` owns bounded active AI and relevant entity
+memory; `weather.rs` derives regional forecasts; `survival/` combines exposure
+and vitals. Existing inventory/crafting, exploration, camera, Game state machine
+and Terrabox Surface/Canvas rendering remain. `persistence.rs` owns schemas and
+validation; `main.rs` owns terminal lifetime, blocking waits and save I/O.
+
+The fixed timestep is 250ms, with at most four catch-up steps after a stall.
+Species movement/weather choices use separate salted hashes of IDs/coordinates
+and ticks, not a global random stream. AI updates once per active second, moves
+at species cadence and resolves occupancy in ID order. Weather has no unbounded
+cache. Menus, help, inventory, crafting, survey, pause and death have no simulation
+deadlines. Playing redraws once per second or on input/resize, with Terrabox's
+changed-row output. RAII restores normal terminal state on return/unwinding;
+forced termination/abort remains outside that guarantee.
 
 ```sh
 cargo fmt --all --check
@@ -240,15 +297,21 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build --release
 python3 scripts/smoke-terminal.py
-python3 scripts/smoke-terminal.py --full-night  # actual timed shelter-to-dawn run
-python3 scripts/capture-terminal.py            # optional X11 capture tools
-cargo check --target x86_64-pc-windows-gnu      # installed target, compilation only
+python3 scripts/smoke-terminal.py --full-night
+cargo run --release --example benchmark
+python3 scripts/capture-terminal.py  # optional X11/xterm/ImageMagick tooling
+cargo check --target x86_64-pc-windows-gnu  # compilation only
 ```
 
 See [validation](docs/validation.md), [integration review](docs/engine-review.md)
-and the historical [Phase 1.1 performance report](docs/performance.md). The
-benchmark example remains a CPU workload, not a survival/emulator latency claim.
+and [Phase 3 performance](docs/performance-phase3.md). The full-night PTY scenario
+uses a real timed toxic-world expedition, including flora/ruins/hostile escape,
+storm warning/onset, shelter, dawn, saving, loading and continued exploration.
 
-Next: tune resource/hazard balance with playtesting, validate native Windows,
-macOS and Termux, and expand resource use within this loop. Creatures, weather,
-galaxies, spaceship travel and multiplayer are intentionally outside Phase 2.
+Limits: simple local AI can become blocked, ambient uninjured animals may respawn,
+plants/minerals do not regrow, shelters remain single-cell, and exploration memory
+grows up to documented save limits. There are no quests beyond shelter survival,
+weather particles, food/thirst simulation, massive recipe catalogue, spaceship
+travel, galaxies or multiplayer. Next: balance/playtest this loop, improve local
+AI/navigation where needed, and validate native Windows/macOS/Termux before
+expanding the planetary simulation.

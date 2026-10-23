@@ -2,3 +2,5 @@
 __pycache__/
 *.save
 *.save.tmp.*
+*.save.v1.bak
+!/tests/fixtures/*.save

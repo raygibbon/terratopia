@@ -359,8 +359,8 @@ fn malformed_truncated_future_and_oversized_saves_are_rejected() {
     let game = equipped_camp();
     let text = persistence::encode(&game).unwrap();
     for bad in [
-        text.replace("SAVE 1", "SAVE 9"),
-        text.replace("GENERATOR 2", "GENERATOR 9"),
+        text.replace("SAVE 2", "SAVE 9"),
+        text.replace("GENERATOR 3", "GENERATOR 9"),
         text.replace("ITEM 5 1", "ITEM 500 1"),
         text.replace("VITALS 100", "VITALS 101"),
         text.replace("INVENTORY 7", "INVENTORY 999999"),

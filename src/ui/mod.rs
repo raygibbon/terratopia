@@ -6,18 +6,41 @@ pub fn style(foreground: u8, background: u8) -> Style {
 pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
     let env = game.environment();
     let biome = env.biome;
+    let context = game.conditions();
+    let exposure = game.survival.exposure(env, context);
+    let weather_label = context.weather.warning.map_or_else(
+        || context.weather.current.name().to_string(),
+        |s| format!("!{} {s}s", context.weather.next.name()),
+    );
+    let near_creatures = game
+        .wildlife
+        .active
+        .iter()
+        .filter(|c| {
+            c.state.health > 0
+                && game
+                    .exploration
+                    .visibility(c.state.position.0, c.state.position.1)
+                    == crate::exploration::Visibility::Visible
+        })
+        .count();
     let size = canvas.size();
     canvas.put_str(
         0,
         0,
-        &format!(" TERRATOPIA | {} | Seed {}", game.planet, game.world.seed()),
+        &format!(
+            " TERRATOPIA | {} | {} | Seed {}",
+            game.planet,
+            game.world.profile().archetype.name(),
+            game.world.seed()
+        ),
         style(14, 0),
     );
     canvas.put_str(
         0,
         1,
         &format!(
-            " HP {}  O2 {}  Energy {} | Day {} {} {}s | Mapped {} | Sites {}",
+            " HP {}  O2 {}  Energy {} | D{} {} {}s | {} | NPC {}",
             game.survival.health,
             game.survival.oxygen,
             game.survival.energy,
@@ -28,8 +51,8 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
                 "DAY"
             },
             game.survival.ticks() / 4 % 120,
-            game.exploration.explored_cells(),
-            game.exploration.discovered_sites()
+            weather_label,
+            near_creatures
         ),
         style(
             if game.survival.oxygen <= 25 || game.survival.health <= 25 {
@@ -44,20 +67,32 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
         0,
         2,
         &format!(
-            " X {}  Y {} | {} {}C {} Fuel {}s | {}",
+            " X {}  Y {} | {} {}C {} F{}s | {}",
             game.player.x,
             game.player.y,
             biome.name(),
-            game.survival.temperature(env),
+            exposure.temperature,
             if env.sheltered {
                 "SHELTER"
-            } else if game.survival.hazardous(env) {
+            } else if context.crash_shield {
+                "SHIELD"
+            } else if exposure.damage > 0 {
                 "HAZARD"
             } else {
                 "SAFE"
             },
             game.camp.power_remaining((game.player.x, game.player.y)),
-            game.objective()
+            if game.camp.completed {
+                "Night survived!"
+            } else if !game.camp.cache_claimed {
+                "E: scavenge A"
+            } else if game.inventory.count(crate::inventory::Item::MiningTool) == 0 {
+                "C: mining tool"
+            } else if game.camp.shelters.is_empty() {
+                "C: kit / B: shelter"
+            } else {
+                "Stay on H all night"
+            }
         ),
         style(11, 0),
     );
@@ -77,12 +112,12 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
     canvas.put_str(
         0,
         size.height.saturating_sub(1),
-        "E Gather | I Pack | C Craft | B Build | O O2 | R Scan | H Help | P Pause | Q/Esc Quit",
+        "E Interact | F Fight | Z Rest | R Scan | M Survey | I/C/B | H Help | P | Q Quit",
         style(14, 0),
     );
 }
 
-pub fn screen(canvas: &mut Canvas<'_>, game: &Game) {
+pub fn screen(canvas: &mut Canvas<'_>, game: &mut Game) {
     use crate::{crafting::RECIPES, game::State, inventory::CAPACITY};
     let size = canvas.size();
     canvas.fill(style(7, 0));
@@ -175,6 +210,18 @@ pub fn screen(canvas: &mut Canvas<'_>, game: &Game) {
             );
             for (i, line) in game
                 .help_lines()
+                .iter()
+                .skip(game.selected)
+                .take(size.height.saturating_sub(4) as usize)
+                .enumerate()
+            {
+                canvas.put_str(0, 2 + i as u16, line, style(7, 0));
+            }
+        }
+        State::Survey => {
+            canvas.put_str(0, 0, "PLANET SURVEY (paused; M/Back closes)", style(14, 0));
+            for (i, line) in game
+                .survey_lines()
                 .iter()
                 .skip(game.selected)
                 .take(size.height.saturating_sub(4) as usize)

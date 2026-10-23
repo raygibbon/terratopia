@@ -1,37 +1,42 @@
 pub mod biome;
 pub mod chunk;
+pub mod flora;
 pub mod landmark;
 pub mod noise;
+pub mod profile;
 pub mod seed;
 pub mod terrain;
 use chunk::{Chunk, ChunkKey, locate};
-use std::collections::BTreeMap;
+use terragame_world::ChunkCache;
 use terrain::Tile;
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct CacheStats {
-    pub hits: u64,
-    pub misses: u64,
-    pub evictions: u64,
-}
+pub use terragame_world::CacheStats;
 
 /// Distance-bounded cache; generation never observes cache contents.
 pub struct World {
     seed: u64,
-    capacity: usize,
-    focus: ChunkKey,
-    chunks: BTreeMap<ChunkKey, Chunk>,
-    stats: CacheStats,
+    profile: profile::Profile,
+    chunks: ChunkCache<Chunk>,
 }
 impl World {
     pub fn new(seed: u64, capacity: usize) -> Self {
+        Self::with_profile(seed, capacity, profile::Profile::generate(seed))
+    }
+    pub fn legacy(seed: u64, capacity: usize) -> Self {
+        Self::with_profile(seed, capacity, profile::Profile::legacy())
+    }
+    fn with_profile(seed: u64, capacity: usize, profile: profile::Profile) -> Self {
         Self {
             seed,
-            capacity: capacity.max(1),
-            focus: (0, 0),
-            chunks: BTreeMap::new(),
-            stats: CacheStats::default(),
+            profile,
+            chunks: ChunkCache::new(capacity),
         }
+    }
+    pub fn profile(&self) -> profile::Profile {
+        self.profile
+    }
+    pub fn generator(&self) -> u8 {
+        if self.profile.legacy { 2 } else { 3 }
     }
     pub fn seed(&self) -> u64 {
         self.seed
@@ -43,7 +48,7 @@ impl World {
             [(0, 0), (8, 0), (-8, 0), (0, 8), (0, -8)]
                 .iter()
                 .all(|&(dx, dy)| {
-                    terrain::generate(self.seed, x + dx, y + dy)
+                    terrain::generate_with(self.seed, x + dx, y + dy, &self.profile)
                         .biome
                         .passable()
                 })
@@ -60,38 +65,23 @@ impl World {
         (0, 0) // The deterministic clearing is always safe, even in this fallback.
     }
     pub fn focus(&mut self, x: i64, y: i64) {
-        self.focus = locate(x, y).0;
+        self.chunks.focus(locate(x, y).0);
     }
     pub fn cached_chunks(&self) -> usize {
         self.chunks.len()
     }
     pub fn contains_chunk(&self, key: ChunkKey) -> bool {
-        self.chunks.contains_key(&key)
+        self.chunks.contains(key)
     }
     pub fn tile(&mut self, x: i64, y: i64) -> Tile {
         let (key, index) = locate(x, y);
-        if let Some(chunk) = self.chunks.get(&key) {
-            self.stats.hits = self.stats.hits.saturating_add(1);
-            return chunk.tile(index);
-        }
-        self.stats.misses = self.stats.misses.saturating_add(1);
-        if self.chunks.len() >= self.capacity {
-            let distance = |k: &ChunkKey| {
-                (i128::from(k.0) - i128::from(self.focus.0))
-                    .abs()
-                    .max((i128::from(k.1) - i128::from(self.focus.1)).abs())
-            };
-            if let Some(farthest) = self.chunks.keys().max_by_key(|k| distance(k)).copied() {
-                self.chunks.remove(&farthest);
-                self.stats.evictions = self.stats.evictions.saturating_add(1);
-            }
-        }
-        let chunk = Chunk::generate(self.seed, key);
-        let tile = chunk.tile(index);
-        self.chunks.insert(key, chunk);
-        tile
+        let seed = self.seed;
+        let profile = self.profile;
+        self.chunks
+            .get_or_insert_with(key, |key| Chunk::generate(seed, key, &profile))
+            .tile(index)
     }
     pub fn cache_stats(&self) -> CacheStats {
-        self.stats
+        self.chunks.stats()
     }
 }

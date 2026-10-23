@@ -12,9 +12,15 @@ pub enum Item {
     Battery,
     ShelterKit,
     ThermalSuit,
+    Organics,
+    Herbs,
+    Technology,
+    MedicalKit,
+    HazardFilter,
+    EnergyPack,
 }
 impl Item {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 17] = [
         Self::Iron,
         Self::Carbon,
         Self::Crystal,
@@ -26,6 +32,12 @@ impl Item {
         Self::Battery,
         Self::ShelterKit,
         Self::ThermalSuit,
+        Self::Organics,
+        Self::Herbs,
+        Self::Technology,
+        Self::MedicalKit,
+        Self::HazardFilter,
+        Self::EnergyPack,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -40,6 +52,12 @@ impl Item {
             Self::Battery => "Battery",
             Self::ShelterKit => "Shelter kit",
             Self::ThermalSuit => "Thermal suit",
+            Self::Organics => "Organics",
+            Self::Herbs => "Medicinal herbs",
+            Self::Technology => "Technology salvage",
+            Self::MedicalKit => "Medical kit",
+            Self::HazardFilter => "Hazard filter",
+            Self::EnergyPack => "Energy pack",
         }
     }
     pub fn limit(self) -> u8 {

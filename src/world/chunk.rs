@@ -5,16 +5,15 @@ use super::{
 pub const CHUNK_SIZE: i64 = 32;
 pub type ChunkKey = (i64, i64);
 pub fn locate(x: i64, y: i64) -> (ChunkKey, usize) {
-    (
-        (x.div_euclid(CHUNK_SIZE), y.div_euclid(CHUNK_SIZE)),
-        (y.rem_euclid(CHUNK_SIZE) * CHUNK_SIZE + x.rem_euclid(CHUNK_SIZE)) as usize,
-    )
+    terragame_world::ChunkLayout::new(CHUNK_SIZE as u16)
+        .expect("nonzero chunk side")
+        .locate((x, y).into())
 }
 pub(crate) struct Chunk {
     tiles: Vec<Tile>,
 }
 impl Chunk {
-    pub(crate) fn generate(seed: u64, key: ChunkKey) -> Self {
+    pub(crate) fn generate(seed: u64, key: ChunkKey, profile: &super::profile::Profile) -> Self {
         let bx = key.0 * CHUNK_SIZE;
         let by = key.1 * CHUNK_SIZE;
         let elevation = chunk_field(seed, bx, by);
@@ -28,9 +27,8 @@ impl Chunk {
                     seed,
                     bx + x,
                     by + y,
-                    elevation[i],
-                    temperature[i],
-                    moisture[i],
+                    (elevation[i], temperature[i], moisture[i]),
+                    profile,
                 ));
             }
         }

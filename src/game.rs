@@ -5,7 +5,7 @@ use crate::{
     input::Action,
     inventory::{Inventory, Item},
     planet::Camp,
-    survival::{Environment, NIGHT_TICKS, Survival},
+    survival::{Conditions, Environment, NIGHT_TICKS, Survival},
     world::{World, seed::planet_name},
 };
 use std::{collections::VecDeque, time::Duration};
@@ -21,6 +21,7 @@ pub enum State {
     Help,
     Dead,
     Quit,
+    Survey,
 }
 pub struct Game {
     pub state: State,
@@ -36,12 +37,24 @@ pub struct Game {
     pub camp: Camp,
     pub selected: usize,
     pub started: bool,
+    pub wildlife: crate::wildlife::Wildlife,
+    pub filter_ticks: u16,
+    pub resting: bool,
+    pub scan_contacts: Vec<String>,
+    pub scan_active: bool,
+    last_weather: crate::weather::Weather,
     return_state: State,
-    accumulator: Duration,
+    clock: terragame_core::FixedStep,
 }
 impl Game {
     pub fn new(seed: u64) -> Self {
-        let mut world = World::new(seed, 128);
+        Self::from_world(World::new(seed, 128))
+    }
+    pub fn legacy(seed: u64) -> Self {
+        Self::from_world(World::legacy(seed, 128))
+    }
+    fn from_world(mut world: World) -> Self {
+        let seed = world.seed();
         let (x, y) = world.landing_site();
         world.focus(x, y);
         let message = "Crash landing. E beside A: emergency cache. H: survival guide.".to_string();
@@ -59,8 +72,14 @@ impl Game {
             camp: Camp::new((x, y)),
             selected: 0,
             started: false,
+            wildlife: crate::wildlife::Wildlife::default(),
+            filter_ticks: 0,
+            resting: false,
+            scan_contacts: Vec::new(),
+            scan_active: false,
+            last_weather: crate::weather::Weather::default(),
             return_state: State::Playing,
-            accumulator: Duration::ZERO,
+            clock: terragame_core::FixedStep::new(STEP, 4).expect("valid simulation clock"),
         }
     }
     pub fn say(&mut self, message: impl Into<String>) {
@@ -78,6 +97,131 @@ impl Game {
             protected: self.inventory.count(Item::ThermalSuit) > 0,
             powered: self.camp.powered(p),
         }
+    }
+    pub fn weather(&mut self) -> crate::weather::Weather {
+        self.conditions_at(self.survival.ticks()).weather
+    }
+    fn conditions_at(&mut self, ticks: u64) -> Conditions {
+        let biome = self
+            .camp
+            .tile(&mut self.world, self.player.x, self.player.y)
+            .biome;
+        Conditions {
+            planet: self.world.profile(),
+            weather: crate::weather::Weather::at(
+                self.world.seed(),
+                self.world.profile(),
+                biome,
+                self.player.x,
+                self.player.y,
+                ticks,
+            ),
+            filtered: self.filter_ticks > 0,
+            crash_shield: self.camp.clearing(self.player.x, self.player.y),
+            resting: self.resting,
+        }
+    }
+    pub fn conditions(&mut self) -> Conditions {
+        self.conditions_at(self.survival.ticks())
+    }
+    pub fn refresh_wildlife(&mut self) {
+        self.wildlife
+            .refresh(&mut self.world, &self.camp, Camp::point(self.player));
+    }
+    fn energy_check(&mut self, cost: u8) -> bool {
+        if self.survival.energy < cost {
+            self.resting = true;
+            self.say("Exhausted. Z rests; energy packs restore 40. Resting recovers energy safely in A/H.");
+            false
+        } else {
+            true
+        }
+    }
+    pub fn survey_lines(&mut self) -> Vec<String> {
+        let p = self.world.profile();
+        let weather = self.weather();
+        let mut lines = vec![
+            format!("{} / {}", self.planet, p.archetype.name()),
+            format!("Atmosphere: {} / oxygen {}%", p.atmosphere(), p.oxygen),
+            format!(
+                "Climate {}C, night drop {}C / gravity {}%",
+                p.temperature, p.variation, p.gravity
+            ),
+            format!(
+                "Radiation {} / toxicity {} / water {}",
+                p.radiation, p.toxicity, p.water
+            ),
+            format!(
+                "Vegetation {} / wildlife {} / mineral richness {}%",
+                p.vegetation, p.wildlife, p.minerals
+            ),
+            format!(
+                "Weather: {} (severity {})",
+                weather.current.name(),
+                weather.severity
+            ),
+            weather
+                .warning
+                .map_or("Forecast: no imminent transition".into(), |s| {
+                    format!(
+                        "WARNING: {} in {s}s. Return to H or crash shield!",
+                        weather.next.name()
+                    )
+                }),
+            format!(
+                "Active wildlife {} / scanned {}",
+                self.wildlife.active.len(),
+                self.wildlife.scanned.len()
+            ),
+            "g grazer (flees) / d defender (territorial) / p predator (chases)".into(),
+            format!(
+                "Ruins salvaged {} / plants harvested {} / filter {}s",
+                self.camp.looted_ruins.len(),
+                self.camp.plants.len(),
+                self.filter_ticks.div_ceil(4)
+            ),
+            format!("Goal: {}", self.objective()),
+            "Visible wildlife:".into(),
+        ];
+        for c in self
+            .wildlife
+            .active
+            .iter()
+            .filter(|c| {
+                self.exploration
+                    .visibility(c.state.position.0, c.state.position.1)
+                    == crate::exploration::Visibility::Visible
+            })
+            .take(8)
+        {
+            lines.push(format!(
+                "{} {} / {} HP / {} at {},{}",
+                c.species.behaviour.glyph(),
+                c.species.name,
+                c.state.health,
+                if c.state.angry {
+                    "HOSTILE"
+                } else {
+                    c.species.behaviour.name()
+                },
+                c.state.position.0,
+                c.state.position.1
+            ));
+        }
+        lines.push("Last scan contacts:".into());
+        lines.extend(self.scan_contacts.iter().cloned());
+        if !self.camp.looted_ruins.is_empty() {
+            lines.push(format!(
+                "Recovered record: {} / {}.",
+                p.archetype.name(),
+                p.atmosphere()
+            ));
+            lines.push(
+                "Survey log: medicinal starleaf treats wounds; shelters survived the storms."
+                    .into(),
+            );
+        }
+        lines
     }
     pub fn objective(&self) -> &'static str {
         if self.camp.completed {
@@ -120,6 +264,14 @@ impl Game {
             "F5 saves; F9/L loads (paused). Q/Esc quits and auto-saves.".into(),
             "Ctrl+Q quits without saving if saving fails.".into(),
             "Backspace closes screens. Up/Down scroll help. No time passes in menus.".into(),
+            "M opens planet survey: atmosphere, weather, species and scan contacts.".into(),
+            "g grazers flee; d defenders guard territory; p predators chase nearby prey.".into(),
+            "F attacks adjacent creatures (4 energy); E on x recovers organics.".into(),
+            "Z rests (+5 energy/s, +8 in shelter). Resting does NOT pause danger.".into(),
+            "Follow the east trail: + medicinal at 5, glow fungus at 7, ruin # at 12.".into(),
+            "Harvest plants with E. Medical kits heal; energy packs restore; filters last 120s."
+                .into(),
+            "Storms warn before arrival. H shelters and the crash shield block exposure.".into(),
             "Recent events:".into(),
         ];
         lines.extend(game.messages.iter().cloned());
@@ -131,7 +283,10 @@ impl Game {
             self.state = State::Quit;
             return true;
         }
-        if matches!(self.state, State::Inventory | State::Crafting | State::Help) {
+        if matches!(
+            self.state,
+            State::Inventory | State::Crafting | State::Help | State::Survey
+        ) {
             match action {
                 Action::Back | Action::Pause => self.state = self.return_state,
                 Action::Inventory if self.state == State::Inventory => {
@@ -139,10 +294,12 @@ impl Game {
                 }
                 Action::Craft if self.state == State::Crafting => self.state = self.return_state,
                 Action::Help if self.state == State::Help => self.state = self.return_state,
+                Action::Menu if self.state == State::Survey => self.state = self.return_state,
                 Action::Move(_, dy) => {
                     let count = match self.state {
                         State::Inventory => self.inventory.stacks().len(),
                         State::Crafting => crafting::RECIPES.len(),
+                        State::Survey => self.survey_lines().len(),
                         _ => self.help_lines().len(),
                     };
                     if dy < 0 {
@@ -175,9 +332,14 @@ impl Game {
                 self.state = State::NewWorld
             }
             (State::NewWorld, Action::Accept) => {
-                *self = Self::new(self.world.seed());
+                *self = if self.world.generator() == 2 {
+                    Self::legacy(self.world.seed())
+                } else {
+                    Self::new(self.world.seed())
+                };
                 self.state = State::Playing;
                 self.started = true;
+                self.refresh_wildlife();
                 self.observe(false);
             }
             (State::Playing | State::Paused, Action::Inventory | Action::Craft | Action::Help) => {
@@ -189,12 +351,51 @@ impl Game {
                     _ => State::Help,
                 };
             }
+            (State::Playing, Action::Menu) => {
+                self.return_state = State::Playing;
+                self.selected = 0;
+                self.state = State::Survey;
+            }
+            (State::Playing, Action::Rest) => {
+                self.resting = !self.resting;
+                self.say(if self.resting {
+                    "Resting: +5 energy/s, +8 in shelter. The world still moves; Z cancels."
+                } else {
+                    "Rest ended."
+                });
+                return true;
+            }
+            (State::Playing, Action::Attack) => {
+                if !self.energy_check(4) {
+                    return true;
+                }
+                match self.wildlife.attack(Camp::point(self.player)) {
+                    Ok(message) => {
+                        self.survival.energy -= 4;
+                        self.resting = false;
+                        self.say(message);
+                    }
+                    Err(e) => self.say(e),
+                };
+                return true;
+            }
             (State::Playing, Action::Move(dx, dy)) => {
+                let cost = if self.camp.clearing(self.player.x, self.player.y) {
+                    1
+                } else {
+                    self.world.profile().gravity.div_ceil(100) as u8
+                };
+                if !self.energy_check(cost) {
+                    return true;
+                }
                 if self.player.step_if(dx, dy, |x, y| {
-                    self.camp.tile(&mut self.world, x, y).biome.passable()
+                    !self.wildlife.occupied((x, y))
+                        && self.camp.tile(&mut self.world, x, y).biome.passable()
                 }) {
                     self.world.focus(self.player.x, self.player.y);
-                    self.survival.energy = self.survival.energy.saturating_sub(1);
+                    self.survival.energy = self.survival.energy.saturating_sub(cost);
+                    self.resting = false;
+                    self.refresh_wildlife();
                     self.observe(false);
                     let p = Camp::point(self.player);
                     let message = if self.camp.sheltered(p) {
@@ -209,15 +410,23 @@ impl Game {
                     };
                     self.say(message);
                 } else {
-                    self.say("Route blocked: water, mountains or world boundary.");
+                    self.say("Route blocked: terrain or wildlife. F attacks adjacent creatures.");
                 }
                 return true;
             }
             (State::Playing, Action::Interact) => {
                 self.interact();
+                if self.survival.health == 0 {
+                    self.state = State::Dead;
+                    self.say("Life support failed. N: new expedition. F9: load saved expedition.");
+                }
                 return true;
             }
             (State::Playing, Action::Build) => {
+                if self.wildlife.occupied(Camp::point(self.player)) {
+                    self.say("Wildlife blocks construction");
+                    return true;
+                }
                 let result = self.camp.build(
                     &mut self.world,
                     &mut self.inventory,
@@ -251,6 +460,49 @@ impl Game {
                             s.y
                         ))
                 ));
+                self.scan_contacts.clear();
+                for site in report.sites.iter().take(8) {
+                    self.scan_contacts.push(format!(
+                        "{} {} at {},{}",
+                        site.kind.glyph(),
+                        site.kind.name(),
+                        site.x,
+                        site.y
+                    ));
+                }
+                for c in &self.wildlife.active {
+                    if c.state.health > 0
+                        && self
+                            .exploration
+                            .visibility(c.state.position.0, c.state.position.1)
+                            == crate::exploration::Visibility::Visible
+                    {
+                        if self.wildlife.scanned.len() < 100_000 {
+                            self.wildlife.scanned.insert(c.state.id);
+                        }
+                        self.scan_contacts.push(format!(
+                            "{} {} ({}) at {},{}",
+                            c.species.behaviour.glyph(),
+                            c.species.name,
+                            c.species.behaviour.name(),
+                            c.state.position.0,
+                            c.state.position.1
+                        ));
+                    }
+                }
+                let weather = self.weather();
+                if weather.current.dangerous()
+                    || weather.next.dangerous()
+                    || self.world.profile().toxicity > 35
+                    || self.world.profile().radiation > 35
+                {
+                    self.scan_contacts.push(format!(
+                        "Anomaly: {} / radiation {} / toxicity {}",
+                        weather.next.name(),
+                        self.world.profile().radiation,
+                        self.world.profile().toxicity
+                    ));
+                }
                 self.last_scan = Some(report);
                 return true;
             }
@@ -260,7 +512,7 @@ impl Game {
             _ => {}
         }
         if self.state != before {
-            self.accumulator = Duration::ZERO;
+            self.clock.reset();
         }
         self.state != before
     }
@@ -283,6 +535,24 @@ impl Game {
                     })
                 }
             }
+            Item::MedicalKit | Item::EnergyPack | Item::HazardFilter => {
+                if item == Item::MedicalKit && self.survival.health == 100
+                    || item == Item::EnergyPack && self.survival.energy == 100
+                    || item == Item::HazardFilter && self.filter_ticks > 480
+                {
+                    Err("Already replenished; supply preserved")
+                } else {
+                    self.inventory.remove(item, 1).map(|()| match item {
+                        Item::MedicalKit => {
+                            self.survival.health = self.survival.health.saturating_add(35).min(100)
+                        }
+                        Item::EnergyPack => {
+                            self.survival.energy = self.survival.energy.saturating_add(40).min(100)
+                        }
+                        _ => self.filter_ticks += 480,
+                    })
+                }
+            }
             Item::Battery => self
                 .camp
                 .power_station(&mut self.inventory, Camp::point(self.player)),
@@ -295,8 +565,10 @@ impl Game {
             Ok(()) => {
                 if item == Item::Battery {
                     "Oxygen station powered for 120 more seconds."
-                } else {
+                } else if item == Item::OxygenCanister {
                     "Oxygen replenished (+50)."
+                } else {
+                    "Survival supply used: health, energy or hazard protection restored."
                 }
             }
             Err(e) => e,
@@ -304,6 +576,58 @@ impl Game {
     }
     fn interact(&mut self) {
         let p = Camp::point(self.player);
+        if let Some(id) = self.wildlife.corpse(p) {
+            match self.inventory.add(Item::Organics, 2) {
+                Ok(()) => {
+                    self.wildlife.loot_corpse(id);
+                    self.say("Recovered organics x2 from wildlife.");
+                }
+                Err(e) => self.say(e),
+            };
+            return;
+        }
+        if matches!(
+            self.camp.tile(&mut self.world, p.0, p.1).landmark,
+            Some(crate::world::landmark::Landmark::Plant(_))
+        ) {
+            if !self.energy_check(3) {
+                return;
+            }
+            match self
+                .camp
+                .harvest_plant(&mut self.world, &mut self.inventory, p)
+            {
+                Ok(plant) => {
+                    self.survival.energy -= 3;
+                    self.resting = false;
+                    if plant == crate::world::flora::Flora::Toxic && self.filter_ticks == 0 {
+                        self.survival.health = self.survival.health.saturating_sub(3);
+                    }
+                    self.say(format!(
+                        "Harvested {}. C crafts medical kits, filters and energy packs.",
+                        plant.name()
+                    ));
+                }
+                Err(e) => self.say(e),
+            }
+            return;
+        }
+        if self.camp.tile(&mut self.world, p.0, p.1).landmark
+            == Some(crate::world::landmark::Landmark::Ruin)
+        {
+            if !self.energy_check(2) {
+                return;
+            }
+            match self.camp.loot_ruin(&mut self.world, &mut self.inventory, p) {
+                Ok(record) => {
+                    self.survival.energy -= 2;
+                    self.resting = false;
+                    self.say(record);
+                }
+                Err(e) => self.say(e),
+            }
+            return;
+        }
         if crate::planet::near(p, self.camp.ship()) && !self.camp.cache_claimed {
             let result = self.camp.scavenge(&mut self.inventory);
             self.say(match result {
@@ -314,13 +638,17 @@ impl Game {
             self.camp.tile(&mut self.world, p.0, p.1).landmark,
             Some(crate::world::landmark::Landmark::Deposit(_))
         ) {
+            if !self.energy_check(2) {
+                return;
+            }
             match self.camp.harvest(&mut self.world, &mut self.inventory, p) {
                 Ok((resource, n)) => {
                     self.survival.energy = self.survival.energy.saturating_sub(2);
+                    self.resting = false;
                     self.say(format!(
                         "Harvested {} x{n}. Remaining {}.",
                         resource.name(),
-                        crate::planet::DEPOSIT_UNITS - self.camp.harvested[&p]
+                        self.camp.deposit_capacity(&self.world, p) - self.camp.harvested[&p]
                     ));
                 }
                 Err(e) => self.say(e),
@@ -332,8 +660,10 @@ impl Game {
         }
     }
     pub fn observe(&mut self, scan: bool) -> ScanReport {
+        self.scan_active = scan;
+        let radius = self.weather().radius(scan);
         self.exploration
-            .reveal_with(self.player.x, self.player.y, scan, |x, y| {
+            .reveal_radius(self.player.x, self.player.y, radius, |x, y| {
                 self.camp.site(&mut self.world, x, y)
             })
     }
@@ -342,16 +672,46 @@ impl Game {
         if self.state != State::Playing {
             return false;
         }
-        self.accumulator += elapsed.min(STEP * 4);
+        let steps = self.clock.advance(elapsed);
         let mut redraw = false;
-        for _ in 0..4 {
-            if self.accumulator < STEP {
-                break;
-            }
-            self.accumulator -= STEP;
+        for _ in 0..steps {
             let was_night = self.survival.night();
             let env = self.environment();
-            redraw |= self.survival.tick(env);
+            let context = self.conditions_at(self.survival.ticks().saturating_add(1));
+            redraw |= self.survival.tick_living(env, context);
+            self.filter_ticks = self.filter_ticks.saturating_sub(1);
+            if context.weather.current != self.last_weather.current {
+                self.say(format!(
+                    "Weather: {}. Shelter and crash shield protect against storms.",
+                    context.weather.current.name()
+                ));
+                self.observe(self.scan_active);
+                redraw = true;
+            } else if context.weather.warning.is_some() && self.last_weather.warning.is_none() {
+                self.say(format!(
+                    "STORM WARNING: {} in {} seconds. Return to H or crash shield!",
+                    context.weather.next.name(),
+                    context.weather.warning.unwrap_or(0)
+                ));
+                redraw = true;
+            }
+            self.last_weather = context.weather;
+            let (injury, events) = self.wildlife.tick(
+                &mut self.world,
+                &self.camp,
+                Camp::point(self.player),
+                self.survival.ticks(),
+            );
+            if injury > 0 {
+                self.survival.health = self.survival.health.saturating_sub(injury);
+                self.say(format!("Wildlife attack: -{injury} HP. Escape or F fight!"));
+                redraw = true;
+            }
+            for event in events.into_iter().take(2) {
+                self.say(event);
+                redraw = true;
+            }
+
             if self.survival.night() {
                 if env.sheltered {
                     self.camp.night_progress = (self.camp.night_progress + 1).min(NIGHT_TICKS);

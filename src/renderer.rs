@@ -67,6 +67,42 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
                         map.put_char(x, y, glyph, tile_style);
                     }
                 }
+                for alive in [false, true] {
+                    for c in &game.wildlife.active {
+                        let p = c.state.position;
+                        if (c.state.health > 0) != alive
+                            || c.state.health == 0 && c.state.looted
+                            || game.exploration.visibility(p.0, p.1) != Visibility::Visible
+                        {
+                            continue;
+                        }
+                        let sx = i128::from(p.0) - i128::from(camera.x);
+                        let sy = i128::from(p.1) - i128::from(camera.y);
+                        if sx >= 0
+                            && sy >= 0
+                            && sx < i128::from(view.width)
+                            && sy < i128::from(view.height)
+                        {
+                            map.put_char(
+                                sx as u16,
+                                sy as u16,
+                                if alive {
+                                    c.species.behaviour.glyph()
+                                } else {
+                                    'x'
+                                },
+                                style(
+                                    if alive {
+                                        c.species.behaviour.colour()
+                                    } else {
+                                        8
+                                    },
+                                    0,
+                                ),
+                            );
+                        }
+                    }
+                }
                 let x = (i128::from(game.player.x) - i128::from(camera.x)) as u16;
                 let y = (i128::from(game.player.y) - i128::from(camera.y)) as u16;
                 map.put_char(x, y, '@', style(15, 1));
@@ -93,20 +129,36 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
                     style(7, 0),
                 );
                 panel.put_str(0, 2, "i Iron k Carbon v Crystal", style(15, 0));
-                panel.put_str(0, 3, "# Ruins  O Arch  % Crater", style(7, 0));
-                for (row, site) in report.sites.iter().take(3).enumerate() {
-                    panel.put_str(
-                        0,
-                        4 + row as u16 * 2,
-                        &format!("{} {}", site.kind.glyph(), site.kind.name()),
-                        style(site.kind.colour(), 0),
-                    );
-                    panel.put_str(
-                        0,
-                        5 + row as u16 * 2,
-                        &format!("  {},{}", site.x, site.y),
-                        style(7, 0),
-                    );
+                panel.put_str(0, 3, "g/d/p Wildlife | M survey", style(11, 0));
+                let wildlife: Vec<_> = game
+                    .scan_contacts
+                    .iter()
+                    .filter(|s| {
+                        s.contains("(grazer)")
+                            || s.contains("(defender)")
+                            || s.contains("(predator)")
+                    })
+                    .collect();
+                if wildlife.is_empty() {
+                    for (row, site) in report.sites.iter().take(3).enumerate() {
+                        panel.put_str(
+                            0,
+                            4 + row as u16 * 2,
+                            &format!("{} {}", site.kind.glyph(), site.kind.name()),
+                            style(site.kind.colour(), 0),
+                        );
+                        panel.put_str(
+                            0,
+                            5 + row as u16 * 2,
+                            &format!("  {},{}", site.x, site.y),
+                            style(7, 0),
+                        );
+                    }
+                } else {
+                    for (row, contact) in wildlife.iter().take(3).enumerate() {
+                        panel.put_str(0, 4 + row as u16 * 2, contact, style(7, 0));
+                    }
+                    panel.put_str(0, 9, "M: species / flora / anomalies", style(14, 0));
                 }
             }
             if game.state == State::Paused {
@@ -131,11 +183,11 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
             canvas.put_str(
                 3,
                 size.height - 2,
-                "Planetary survival / Phase 2",
+                "Living alien worlds / Phase 3",
                 style(8, 0),
             );
         }
-        State::Inventory | State::Crafting | State::Help | State::Dead => {
+        State::Inventory | State::Crafting | State::Help | State::Survey | State::Dead => {
             crate::ui::screen(&mut canvas, game)
         }
         State::Quit => {}

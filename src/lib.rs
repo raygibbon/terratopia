@@ -10,4 +10,6 @@ pub mod planet;
 pub mod renderer;
 pub mod survival;
 pub mod ui;
+pub mod weather;
+pub mod wildlife;
 pub mod world;

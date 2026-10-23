@@ -40,6 +40,7 @@ impl Resource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Landmark {
     Ruin,
+    Plant(super::flora::Flora),
     Deposit(Resource),
     Arch,
     Crater,
@@ -48,6 +49,7 @@ impl Landmark {
     pub fn name(self) -> &'static str {
         match self {
             Self::Ruin => "Alien ruins",
+            Self::Plant(p) => p.name(),
             Self::Deposit(r) => r.name(),
             Self::Arch => "Basalt arch",
             Self::Crater => "Impact crater",
@@ -56,6 +58,7 @@ impl Landmark {
     pub fn glyph(self) -> char {
         match self {
             Self::Ruin => '#',
+            Self::Plant(p) => p.glyph(),
             Self::Deposit(r) => r.glyph(),
             Self::Arch => 'O',
             Self::Crater => '%',
@@ -64,6 +67,7 @@ impl Landmark {
     pub fn colour(self) -> u8 {
         match self {
             Self::Ruin => 13,
+            Self::Plant(p) => p.colour(),
             Self::Deposit(r) => r.colour(),
             Self::Arch => 9,
             Self::Crater => 11,
@@ -101,6 +105,7 @@ pub fn at(seed: u64, x: i64, y: i64) -> Option<Site> {
     let dx = i128::from(x) - ax;
     let dy = i128::from(y) - ay;
     let on_site = match kind {
+        Landmark::Plant(_) => false,
         Landmark::Ruin => dx.abs().max(dy.abs()) == 2 && !(dx == 0 && dy == 2),
         Landmark::Deposit(_) => dx * dx + dy * dy <= 2,
         Landmark::Arch => dy == 0 && dx.abs() <= 1 || dx.abs() == 1 && dy == 1,

@@ -41,14 +41,61 @@ fn main() {
     let start = Instant::now();
     for _ in 0..300 {
         game.player.x += 1;
-        game.exploration
-            .reveal(&mut game.world, game.player.x, game.player.y, false);
+        game.observe(false);
+        game.refresh_wildlife();
         game.world.focus(game.player.x, game.player.y);
         renderer::render(&mut game, &mut surface, size);
         black_box(&surface);
     }
     println!(
         "scrolling logical redraws: 300 at 100x30 in {:?}",
+        start.elapsed()
+    );
+    let mut scanner = Game::new(827193);
+    scanner.handle(terratopia::input::Action::NewWorld);
+    scanner.handle(terratopia::input::Action::Accept);
+    let start = Instant::now();
+    for _ in 0..500 {
+        black_box(scanner.handle(terratopia::input::Action::Scan));
+    }
+    println!("scans: 500 full scan actions in {:?}", start.elapsed());
+    let mut simulation = Game::new(827193);
+    simulation.handle(terratopia::input::Action::NewWorld);
+    simulation.handle(terratopia::input::Action::Accept);
+    let point = simulation.camp.offset(12, 0);
+    let initial = simulation.wildlife.active.len();
+    let start = Instant::now();
+    for tick in (4..=4000).step_by(4) {
+        black_box(
+            simulation
+                .wildlife
+                .tick(&mut simulation.world, &simulation.camp, point, tick),
+        );
+    }
+    println!(
+        "creature simulation: 1000 one-second updates in {:?}; {} active, {} alive at end",
+        start.elapsed(),
+        initial,
+        simulation
+            .wildlife
+            .active
+            .iter()
+            .filter(|c| c.state.health > 0)
+            .count()
+    );
+    let mut movement = Game::new(827193);
+    movement.handle(terratopia::input::Action::NewWorld);
+    movement.handle(terratopia::input::Action::Accept);
+    let start = Instant::now();
+    for i in 0..1000 {
+        movement.survival.energy = 100;
+        black_box(movement.handle(terratopia::input::Action::Move(
+            if i % 2 == 0 { 1 } else { -1 },
+            0,
+        )));
+    }
+    println!(
+        "game movement: 1000 clear-ground steps in {:?}",
         start.elapsed()
     );
 }

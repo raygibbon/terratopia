@@ -19,10 +19,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "terragame-core"
+version = "0.1.0"
+
+[[package]]
+name = "terragame-terminal"
+version = "0.1.0"
+dependencies = [
+ "terrabox",
+ "terragame-core",
+ "terragame-world",
+]
+
+[[package]]
+name = "terragame-world"
+version = "0.1.0"
+dependencies = [
+ "terragame-core",
+]
+
+[[package]]
 name = "terratopia"
 version = "0.1.0"
 dependencies = [
  "terrabox",
+ "terragame-core",
+ "terragame-terminal",
+ "terragame-world",
 ]
 
 [[package]]

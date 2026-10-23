@@ -2,7 +2,7 @@
 use crate::{
     game::{Game, State},
     inventory::{Inventory, Item, Stack},
-    planet::{DEPOSIT_UNITS, Shelter},
+    planet::Shelter,
     survival::{NIGHT_TICKS, Survival},
     world::landmark::{Landmark, Resource, Site},
 };
@@ -13,13 +13,19 @@ use std::{
     path::Path,
 };
 const LIMIT: u64 = 8 * 1024 * 1024;
-const HEADER: &str = "TERRATOPIA_SAVE 1";
+const HEADER: &str = "TERRATOPIA_SAVE 2";
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 fn kind_id(kind: Landmark) -> u8 {
     match kind {
         Landmark::Ruin => 0,
+        Landmark::Plant(p) => match p {
+            crate::world::flora::Flora::Fern => 8,
+            crate::world::flora::Flora::Fungus => 9,
+            crate::world::flora::Flora::Toxic => 10,
+            crate::world::flora::Flora::Medicinal => 11,
+        },
         Landmark::Arch => 1,
         Landmark::Crater => 2,
         Landmark::Deposit(r) => match r {
@@ -41,6 +47,10 @@ fn kind(id: u8) -> io::Result<Landmark> {
         5 => Landmark::Deposit(Resource::Silica),
         6 => Landmark::Deposit(Resource::Carbon),
         7 => Landmark::Deposit(Resource::Crystal),
+        8 => Landmark::Plant(crate::world::flora::Flora::Fern),
+        9 => Landmark::Plant(crate::world::flora::Flora::Fungus),
+        10 => Landmark::Plant(crate::world::flora::Flora::Toxic),
+        11 => Landmark::Plant(crate::world::flora::Flora::Medicinal),
         _ => return Err(invalid("Unknown discovery kind")),
     })
 }
@@ -52,11 +62,17 @@ pub fn encode(game: &Game) -> io::Result<String> {
         || game.camp.harvested.len() > 100_000
         || game.exploration.explored.len() > 20_000
         || game.exploration.sites.len() > 100_000
+        || game.camp.plants.len() > 100_000
+        || game.camp.looted_ruins.len() > 10_000
+        || game.wildlife.active.len() > crate::wildlife::MAX_ACTIVE
+        || game.wildlife.memory.len() > crate::wildlife::MAX_MEMORY
+        || game.wildlife.scanned.len() > 100_000
     {
         return Err(invalid("Save entry limit exceeded"));
     }
     let mut out = format!(
-        "{HEADER}\nGENERATOR 2\nSEED {}\nPLAYER {} {}\nVITALS {} {} {} {}\nCAMP {} {} {} {}\n",
+        "{HEADER}\nGENERATOR {}\nSEED {}\nPLAYER {} {}\nVITALS {} {} {} {}\nCAMP {} {} {} {}\n",
+        game.world.generator(),
         game.world.seed(),
         game.player.x,
         game.player.y,
@@ -98,11 +114,63 @@ pub fn encode(game: &Game) -> io::Result<String> {
     for site in game.exploration.sites.values() {
         writeln!(out, "SITE {} {} {}", site.x, site.y, kind_id(site.kind)).unwrap();
     }
+    writeln!(
+        out,
+        "LIVING {} {}",
+        game.filter_ticks,
+        u8::from(game.resting)
+    )
+    .unwrap();
+    writeln!(out, "PLANTS {}", game.camp.plants.len()).unwrap();
+    for &(x, y) in &game.camp.plants {
+        writeln!(out, "PLANT {x} {y}").unwrap();
+    }
+    writeln!(out, "RUINS {}", game.camp.looted_ruins.len()).unwrap();
+    for &(x, y) in &game.camp.looted_ruins {
+        writeln!(out, "RUIN {x} {y}").unwrap();
+    }
+    writeln!(out, "MEMORY {}", game.wildlife.memory.len()).unwrap();
+    for state in game.wildlife.memory.values() {
+        write_actor(&mut out, "CREATURE", *state);
+    }
+    writeln!(out, "ACTORS {}", game.wildlife.active.len()).unwrap();
+    for creature in &game.wildlife.active {
+        write_actor(&mut out, "ACTOR", creature.state);
+    }
+    writeln!(out, "SCANNED {}", game.wildlife.scanned.len()).unwrap();
+    for &(x, y, slot) in &game.wildlife.scanned {
+        writeln!(out, "ID {x} {y} {slot}").unwrap();
+    }
     out.push_str("END\n");
     if out.len() as u64 > LIMIT {
         return Err(invalid("Save exceeds 8 MiB limit"));
     }
     Ok(out)
+}
+fn write_actor(out: &mut String, name: &str, state: crate::wildlife::CreatureState) {
+    writeln!(
+        out,
+        "{name} {} {} {} {} {} {} {} {}",
+        state.id.0,
+        state.id.1,
+        state.id.2,
+        state.position.0,
+        state.position.1,
+        state.health,
+        u8::from(state.angry),
+        u8::from(state.looted)
+    )
+    .unwrap();
+}
+fn read_actor(parser: &mut Parser<'_>, name: &str) -> io::Result<crate::wildlife::CreatureState> {
+    let r = parser.row(name, 8)?;
+    Ok(crate::wildlife::CreatureState {
+        id: (num(r[0])?, num(r[1])?, num(r[2])?),
+        position: (num(r[3])?, num(r[4])?),
+        health: num(r[5])?,
+        angry: boolean(r[6])?,
+        looted: boolean(r[7])?,
+    })
 }
 struct Parser<'a> {
     lines: std::str::Lines<'a>,
@@ -146,14 +214,23 @@ pub fn decode(text: &str) -> io::Result<Game> {
     let mut parser = Parser {
         lines: text.lines(),
     };
-    if parser.lines.next() != Some(HEADER) {
-        return Err(invalid("Unsupported save version"));
-    }
-    if parser.row("GENERATOR", 1)?[0] != "2" {
-        return Err(invalid("Unsupported world generator version"));
+    let version = match parser.lines.next() {
+        Some("TERRATOPIA_SAVE 1") => 1,
+        Some(HEADER) => 2,
+        _ => return Err(invalid("Unsupported save version; expected 1 or 2")),
+    };
+    let generator = num::<u8>(parser.row("GENERATOR", 1)?[0])?;
+    if !matches!((version, generator), (1, 2) | (2, 2) | (2, 3)) {
+        return Err(invalid(
+            "Incompatible generator: v1 requires generator 2; v2 supports 2 and 3",
+        ));
     }
     let seed = num(parser.row("SEED", 1)?[0])?;
-    let mut game = Game::new(seed);
+    let mut game = if generator == 2 {
+        Game::legacy(seed)
+    } else {
+        Game::new(seed)
+    };
     let p = parser.row("PLAYER", 2)?;
     game.player.x = num(p[0])?;
     game.player.y = num(p[1])?;
@@ -171,6 +248,9 @@ pub fn decode(text: &str) -> io::Result<Game> {
     let mut stacks = Vec::new();
     for _ in 0..parser.count("INVENTORY", crate::inventory::CAPACITY)? {
         let r = parser.row("ITEM", 2)?;
+        if version == 1 && num::<usize>(r[0])? > 10 {
+            return Err(invalid("Item is not valid in v1"));
+        }
         stacks.push(Stack {
             item: *Item::ALL
                 .get(num::<usize>(r[0])?)
@@ -194,7 +274,7 @@ pub fn decode(text: &str) -> io::Result<Game> {
         let p = (num(r[0])?, num(r[1])?);
         let n = num(r[2])?;
         if n == 0
-            || n > DEPOSIT_UNITS
+            || n > game.camp.deposit_capacity(&game.world, p)
             || !matches!(
                 game.camp.tile(&mut game.world, p.0, p.1).landmark,
                 Some(Landmark::Deposit(_))
@@ -202,14 +282,6 @@ pub fn decode(text: &str) -> io::Result<Game> {
             || game.camp.harvested.insert(p, n).is_some()
         {
             return Err(invalid("Invalid or duplicate harvested node"));
-        }
-    }
-    for shelter in &game.camp.shelters {
-        let tile = game
-            .camp
-            .tile(&mut game.world, shelter.position.0, shelter.position.1);
-        if !tile.biome.passable() || tile.landmark.is_some() {
-            return Err(invalid("Shelter must occupy cleared walkable ground"));
         }
     }
     for _ in 0..parser.count("FOG", 20_000)? {
@@ -233,6 +305,9 @@ pub fn decode(text: &str) -> io::Result<Game> {
         let r = parser.row("SITE", 3)?;
         let x = num(r[0])?;
         let y = num(r[1])?;
+        if version == 1 && num::<u8>(r[2])? > 7 {
+            return Err(invalid("Discovery is not valid in v1"));
+        }
         let kind = kind(num(r[2])?)?;
         if game
             .exploration
@@ -241,6 +316,95 @@ pub fn decode(text: &str) -> io::Result<Game> {
             .is_some()
         {
             return Err(invalid("Duplicate discovery"));
+        }
+    }
+    if version == 2 {
+        let r = parser.row("LIVING", 2)?;
+        game.filter_ticks = num(r[0])?;
+        game.resting = boolean(r[1])?;
+        if game.filter_ticks > 960 {
+            return Err(invalid("Filter timer exceeds limit"));
+        }
+        for _ in 0..parser.count("PLANTS", 100_000)? {
+            let r = parser.row("PLANT", 2)?;
+            let p = (num(r[0])?, num(r[1])?);
+            if !matches!(
+                game.camp.initial_tile(&mut game.world, p.0, p.1).landmark,
+                Some(Landmark::Plant(_))
+            ) || !game.camp.plants.insert(p)
+            {
+                return Err(invalid("Invalid or duplicate harvested plant"));
+            }
+        }
+        for _ in 0..parser.count("RUINS", 10_000)? {
+            let r = parser.row("RUIN", 2)?;
+            let p = (num::<i64>(r[0])?, num::<i64>(r[1])?);
+            let mut found = false;
+            for dy in -2..=2 {
+                for dx in -2..=2 {
+                    if let (Some(x), Some(y)) = (p.0.checked_add(dx), p.1.checked_add(dy))
+                        && game
+                            .camp
+                            .site(&mut game.world, x, y)
+                            .is_some_and(|s| s.kind == Landmark::Ruin && (s.x, s.y) == p)
+                    {
+                        found = true;
+                    }
+                }
+            }
+            if !found || !game.camp.looted_ruins.insert(p) {
+                return Err(invalid("Invalid or duplicate looted ruin"));
+            }
+        }
+        for _ in 0..parser.count("MEMORY", crate::wildlife::MAX_MEMORY)? {
+            let state = read_actor(&mut parser, "CREATURE")?;
+            if !crate::wildlife::Wildlife::validate_record(&mut game.world, &game.camp, state)
+                || game.wildlife.memory.insert(state.id, state).is_some()
+            {
+                return Err(invalid("Invalid or duplicate persistent creature"));
+            }
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        let mut positions = std::collections::BTreeSet::new();
+        for _ in 0..parser.count("ACTORS", crate::wildlife::MAX_ACTIVE)? {
+            let state = read_actor(&mut parser, "ACTOR")?;
+            if !crate::wildlife::Wildlife::validate_record(&mut game.world, &game.camp, state)
+                || !ids.insert(state.id)
+                || state.health > 0
+                    && (!positions.insert(state.position)
+                        || state.position == (game.player.x, game.player.y))
+                || crate::wildlife::distance(state.position, (game.player.x, game.player.y))
+                    > i128::from(crate::wildlife::ACTIVE_RADIUS)
+                || game
+                    .wildlife
+                    .memory
+                    .get(&state.id)
+                    .is_some_and(|s| s != &state)
+            {
+                return Err(invalid("Invalid active creature position or state"));
+            }
+            let mut creature =
+                crate::wildlife::Wildlife::prototype(&mut game.world, &game.camp, state.id)
+                    .ok_or_else(|| invalid("Invalid creature identity"))?;
+            creature.state = state;
+            game.wildlife.active.push(creature);
+        }
+        for _ in 0..parser.count("SCANNED", 100_000)? {
+            let r = parser.row("ID", 3)?;
+            let id = (num(r[0])?, num(r[1])?, num(r[2])?);
+            if crate::wildlife::Wildlife::prototype(&mut game.world, &game.camp, id).is_none()
+                || !game.wildlife.scanned.insert(id)
+            {
+                return Err(invalid("Invalid scanned wildlife identity"));
+            }
+        }
+    }
+    for shelter in &game.camp.shelters {
+        let tile = game
+            .camp
+            .tile(&mut game.world, shelter.position.0, shelter.position.1);
+        if !tile.biome.passable() || tile.landmark.is_some() {
+            return Err(invalid("Shelter must occupy cleared walkable ground"));
         }
     }
     parser.row("END", 0)?;
@@ -255,20 +419,62 @@ pub fn decode(text: &str) -> io::Result<Game> {
     {
         return Err(invalid("Player occupies impassable terrain"));
     }
+    game.wildlife
+        .active
+        .sort_by_key(|creature| creature.state.id);
     game.exploration.recount();
     game.world.focus(game.player.x, game.player.y);
     game.started = true;
+    if version == 1 {
+        game.refresh_wildlife();
+    }
     game.observe(false);
     game.state = if game.survival.health == 0 {
         State::Dead
     } else {
         State::Paused
     };
-    game.say("Expedition loaded. P resumes; H shows the survival guide.");
+    game.say(if version==1 {"Expedition loaded. Legacy terrain retained; next save upgrades to v2 with .v1.bak backup. P resumes."}else{"Expedition loaded. P resumes; M surveys living-world conditions."});
     Ok(game)
 }
 pub fn save(game: &Game, path: &Path) -> io::Result<()> {
     let text = encode(game)?;
+    if path.exists() {
+        let mut old = String::new();
+        File::open(path)?.take(LIMIT + 1).read_to_string(&mut old)?;
+        if old.len() as u64 > LIMIT {
+            return Err(invalid(
+                "Existing save is oversized; choose another path to preserve it",
+            ));
+        }
+        if old.lines().next() == Some("TERRATOPIA_SAVE 1") {
+            let mut backup = path.as_os_str().to_os_string();
+            backup.push(".v1.bak");
+            let backup = std::path::PathBuf::from(backup);
+            if backup.exists() {
+                if fs::metadata(&backup)?.len() != old.len() as u64
+                    || fs::read(&backup)? != old.as_bytes()
+                {
+                    return Err(invalid(
+                        "Legacy backup differs; choose a different save path to preserve both files",
+                    ));
+                }
+            } else {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&backup)?;
+                if let Err(e) = file
+                    .write_all(old.as_bytes())
+                    .and_then(|()| file.sync_all())
+                {
+                    drop(file);
+                    let _ = fs::remove_file(&backup);
+                    return Err(e);
+                }
+            }
+        }
+    }
     let mut temporary = path.as_os_str().to_os_string();
     temporary.push(format!(".tmp.{}", std::process::id()));
     let temporary = std::path::PathBuf::from(temporary);

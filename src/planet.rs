@@ -1,4 +1,5 @@
 //! Mutable expedition effects overlay, never edit, deterministic base terrain.
+use crate::world::flora::Flora;
 use crate::{
     entities::player::Player,
     inventory::{Inventory, Item},
@@ -9,7 +10,7 @@ use crate::{
         terrain::Tile,
     },
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 pub type Point = (i64, i64);
 pub const DEPOSIT_UNITS: u8 = 12;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,6 +27,8 @@ pub struct Camp {
     pub harvested: BTreeMap<Point, u8>,
     pub night_progress: u16,
     pub completed: bool,
+    pub plants: BTreeSet<Point>,
+    pub looted_ruins: BTreeSet<Point>,
 }
 pub fn near(a: Point, b: Point) -> bool {
     (i128::from(a.0) - i128::from(b.0)).abs() + (i128::from(a.1) - i128::from(b.1)).abs() <= 1
@@ -40,6 +43,25 @@ impl Camp {
             harvested: BTreeMap::new(),
             night_progress: 0,
             completed: false,
+            plants: BTreeSet::new(),
+            looted_ruins: BTreeSet::new(),
+        }
+    }
+    pub fn offset(&self, dx: i64, dy: i64) -> Point {
+        (
+            self.origin.0.saturating_add(dx),
+            self.origin.1.saturating_add(dy),
+        )
+    }
+    pub fn trail(&self, x: i64, y: i64) -> bool {
+        (5..=16).contains(&(i128::from(x) - i128::from(self.origin.0)))
+            && (i128::from(y) - i128::from(self.origin.1)).abs() <= 1
+    }
+    pub fn deposit_capacity(&self, world: &World, p: Point) -> u8 {
+        if self.clearing(p.0, p.1) || world.profile().legacy {
+            DEPOSIT_UNITS
+        } else {
+            (u32::from(world.profile().minerals) * 12 / 100).clamp(6, 24) as u8
         }
     }
     pub fn ship(&self) -> Point {
@@ -70,7 +92,7 @@ impl Camp {
             ),
         ]
     }
-    pub fn tile(&self, world: &mut World, x: i64, y: i64) -> Tile {
+    pub(crate) fn initial_tile(&self, world: &mut World, x: i64, y: i64) -> Tile {
         let mut tile = world.tile(x, y);
         if self.clearing(x, y) {
             tile = Tile {
@@ -81,11 +103,48 @@ impl Camp {
                 tile.landmark = Some(Landmark::Deposit(*resource));
             }
         }
+        if !world.profile().legacy && self.trail(x, y) {
+            tile = Tile {
+                biome: Biome::Grassland,
+                landmark: None,
+            };
+        }
+        if !self.clearing(x, y) && tile.landmark.is_none() {
+            tile.landmark =
+                Flora::at(world.seed(), x, y, tile.biome, world.profile()).map(Landmark::Plant);
+        }
+        if !world.profile().legacy {
+            if (x, y) == self.offset(5, 0) {
+                tile.landmark = Some(Landmark::Plant(Flora::Medicinal));
+            }
+            if (x, y) == self.offset(7, 1) {
+                tile.landmark = Some(Landmark::Plant(Flora::Fungus));
+            }
+            if (x, y) == self.offset(9, -1) {
+                tile.landmark = Some(Landmark::Plant(Flora::Toxic));
+            }
+            if (x, y) == self.offset(12, 0) {
+                tile.landmark = Some(Landmark::Ruin);
+            }
+        }
+        tile
+    }
+    pub fn tile(&self, world: &mut World, x: i64, y: i64) -> Tile {
+        let mut tile = self.initial_tile(world, x, y);
         if self
             .harvested
             .get(&(x, y))
-            .is_some_and(|&n| n >= DEPOSIT_UNITS)
+            .is_some_and(|&n| n >= self.deposit_capacity(world, (x, y)))
             && matches!(tile.landmark, Some(Landmark::Deposit(_)))
+        {
+            tile.landmark = None;
+        }
+        if self.plants.contains(&(x, y)) && matches!(tile.landmark, Some(Landmark::Plant(_))) {
+            tile.landmark = None;
+        }
+        if world.profile().legacy
+            && self.sheltered((x, y))
+            && matches!(tile.landmark, Some(Landmark::Plant(_)))
         {
             tile.landmark = None;
         }
@@ -93,7 +152,10 @@ impl Camp {
     }
     pub fn site(&self, world: &mut World, x: i64, y: i64) -> Option<Site> {
         let kind = self.tile(world, x, y).landmark?;
-        if self.clearing(x, y) {
+        if self.clearing(x, y)
+            || matches!(kind, Landmark::Plant(_))
+            || !world.profile().legacy && (x, y) == self.offset(12, 0)
+        {
             Some(Site { x, y, kind })
         } else {
             landmark::at(world.seed(), x, y)
@@ -158,10 +220,68 @@ impl Camp {
             return Err("Scavenge the spacecraft for a salvage pick first (E)");
         }
         let used = self.harvested.get(&p).copied().unwrap_or(0);
-        let amount = 2.min(DEPOSIT_UNITS - used);
+        let amount = 2.min(self.deposit_capacity(world, p) - used);
         inventory.add(resource.into(), amount)?;
         self.harvested.insert(p, used + amount);
         Ok((resource, amount))
+    }
+    pub fn harvest_plant(
+        &mut self,
+        world: &mut World,
+        inventory: &mut Inventory,
+        p: Point,
+    ) -> Result<Flora, &'static str> {
+        let Some(Landmark::Plant(plant)) = self.tile(world, p.0, p.1).landmark else {
+            return Err("No unharvested plant here");
+        };
+        if self.plants.len() >= 100_000 {
+            return Err("Plant record limit reached");
+        }
+        let output = if plant == Flora::Medicinal {
+            Item::Herbs
+        } else {
+            Item::Organics
+        };
+        inventory.add(output, 2)?;
+        self.plants.insert(p);
+        Ok(plant)
+    }
+    pub fn loot_ruin(
+        &mut self,
+        world: &mut World,
+        inventory: &mut Inventory,
+        p: Point,
+    ) -> Result<String, &'static str> {
+        let Some(site) = self
+            .site(world, p.0, p.1)
+            .filter(|s| s.kind == Landmark::Ruin)
+        else {
+            return Err("Stand on # to explore a ruin");
+        };
+        let anchor = (site.x, site.y);
+        if self.looted_ruins.contains(&anchor) {
+            return Err("Ruin already salvaged; its planetary record is in M survey");
+        }
+        if self.looted_ruins.len() >= 10_000 {
+            return Err("Ruin record limit reached");
+        }
+        let h = crate::world::seed::hash(world.seed() ^ 0x4c4f4f54, site.x, site.y);
+        let supplies = if h & 1 == 0 {
+            Item::OxygenCanister
+        } else {
+            Item::Battery
+        };
+        inventory.transact(
+            &[],
+            &[(Item::Technology, 1), (supplies, 1), (Item::Crystal, 1)],
+        )?;
+        self.looted_ruins.insert(anchor);
+        Ok(format!(
+            "Ruin salvage: technology, {}, crystal. Record: {} / {}.",
+            supplies.name(),
+            world.profile().archetype.name(),
+            world.profile().atmosphere()
+        ))
     }
     pub fn build(
         &mut self,

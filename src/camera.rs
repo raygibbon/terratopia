@@ -8,14 +8,10 @@ pub struct Camera {
 }
 impl Camera {
     pub fn following(player: Player, viewport: Rect) -> Self {
-        fn origin(center: i64, span: u16) -> i64 {
-            let extent = i128::from(span.saturating_sub(1));
-            (i128::from(center) - i128::from(span / 2))
-                .clamp(i128::from(i64::MIN), i128::from(i64::MAX) - extent) as i64
-        }
+        let camera = terragame_terminal::Camera::following((player.x, player.y).into(), viewport);
         Self {
-            x: origin(player.x, viewport.width),
-            y: origin(player.y, viewport.height),
+            x: camera.origin.x,
+            y: camera.origin.y,
             viewport,
         }
     }

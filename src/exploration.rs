@@ -75,10 +75,19 @@ impl Exploration {
         x: i64,
         y: i64,
         scan: bool,
+        query: impl FnMut(i64, i64) -> Option<Site>,
+    ) -> ScanReport {
+        self.reveal_radius(x, y, if scan { SCAN_RADIUS } else { SIGHT_RADIUS }, query)
+    }
+    pub fn reveal_radius(
+        &mut self,
+        x: i64,
+        y: i64,
+        radius: i64,
         mut query: impl FnMut(i64, i64) -> Option<Site>,
     ) -> ScanReport {
         self.center = (x, y);
-        self.radius = if scan { SCAN_RADIUS } else { SIGHT_RADIUS };
+        self.radius = radius.clamp(1, SCAN_RADIUS);
         let old_cells = self.cells;
         let old_sites = self.sites.len();
         let mut nearby = BTreeMap::new();

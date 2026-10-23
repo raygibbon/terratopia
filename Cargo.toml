@@ -6,3 +6,6 @@ description = "A deterministic terminal planetary exploration game powered by Te
 
 [dependencies]
 terrabox = { path = "../terrabox/crates/terrabox" }
+terragame-core = { path = "../terragame/crates/terragame-core" }
+terragame-world = { path = "../terragame/crates/terragame-world" }
+terragame-terminal = { path = "../terragame/crates/terragame-terminal" }

@@ -3,7 +3,7 @@ pub struct Recipe {
     pub output: Item,
     pub ingredients: &'static [(Item, u8)],
 }
-pub const RECIPES: [Recipe; 5] = [
+pub const RECIPES: [Recipe; 8] = [
     Recipe {
         output: Item::MiningTool,
         ingredients: &[(Item::Iron, 3), (Item::Carbon, 2)],
@@ -23,6 +23,18 @@ pub const RECIPES: [Recipe; 5] = [
     Recipe {
         output: Item::ThermalSuit,
         ingredients: &[(Item::Carbon, 3), (Item::Crystal, 1)],
+    },
+    Recipe {
+        output: Item::MedicalKit,
+        ingredients: &[(Item::Herbs, 2), (Item::Carbon, 1)],
+    },
+    Recipe {
+        output: Item::HazardFilter,
+        ingredients: &[(Item::Organics, 2), (Item::Crystal, 1)],
+    },
+    Recipe {
+        output: Item::EnergyPack,
+        ingredients: &[(Item::Organics, 2), (Item::Carbon, 1)],
     },
 ];
 pub fn craft(inventory: &mut Inventory, index: usize) -> Result<Item, &'static str> {

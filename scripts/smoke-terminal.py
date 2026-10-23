@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT / "target/release/terratopia"
 
 
-def smoke(exit_key, save, full_night=False):
+def smoke(exit_key, save, full_night=False, seed=827193):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
     original = termios.tcgetattr(slave)
@@ -31,7 +31,7 @@ def smoke(exit_key, save, full_night=False):
         fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
     process = subprocess.Popen(
-        [str(BINARY), "--seed", "827193", "--save", str(save)],
+        [str(BINARY), "--seed", str(seed), "--save", str(save)],
         stdin=slave, stdout=slave, stderr=slave, preexec_fn=connect,
         env={**os.environ, "TERM": "xterm-256color"})
     output = bytearray()
@@ -107,7 +107,7 @@ def smoke(exit_key, save, full_night=False):
         assert b"Oxygen station powered" in send(b"e")
         assert b"Expedition saved." in send(b"\x1b[15~")
         saved = save.read_text()
-        assert "TERRATOPIA_SAVE 1" in saved and "SHELTERS 1" in saved
+        assert "TERRATOPIA_SAVE 2" in saved and "SHELTERS 1" in saved
         assert "HARVESTED 3" in saved
         assert f" X {x+1}  Y {y}".encode() in send(b"d")
         loaded = send(b"\x1b[20~")  # F9
@@ -178,8 +178,105 @@ def save_error_smoke(folder):
         os.close(master);os.close(slave)
 
 
+def living_smoke(save, full_night=False):
+    """Continue the same toxic-world expedition through the new exploration loop."""
+    from collections import deque
+    master,slave=pty.openpty()
+    fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack("HHHH",24,100,0,0))
+    original=termios.tcgetattr(slave)
+    def connect():
+        os.setsid();fcntl.ioctl(0,termios.TIOCSCTTY,0)
+    process=subprocess.Popen([str(BINARY),"--load","--save",str(save)],stdin=slave,stdout=slave,stderr=slave,
+        preexec_fn=connect,env={**os.environ,"TERM":"xterm-256color"})
+    output=bytearray()
+    header=save.read_text().splitlines()
+    origin=tuple(map(int,next(line for line in header if line.startswith("PLAYER ")).split()[1:]))
+    current=origin
+    def drain(duration=.12):
+        nonlocal current
+        before=len(output);until=time.monotonic()+duration
+        while time.monotonic()<until:
+            if select.select([master],[],[],max(0,until-time.monotonic()))[0]:
+                output.extend(os.read(master,65536))
+        data=bytes(output[before:]);coords=re.findall(rb" X (-?\d+)  Y (-?\d+)",data)
+        if coords: current=tuple(map(int,coords[-1]))
+        assert b"LIFE SUPPORT FAILED" not in data, data[-1500:]
+        return data
+    def send(keys):
+        os.write(master,keys);return drain()
+    def valid(p):
+        dx=p[0]-origin[0];dy=p[1]-origin[1]
+        return abs(dx)<=4 and abs(dy)<=4 or 5<=dx<=16 and abs(dy)<=1
+    def walk(dx,dy):
+        target=(origin[0]+dx,origin[1]+dy);blocked=set();attempts=0
+        while current!=target:
+            attempts+=1;assert attempts<150,(current,target)
+            queue=deque([(current,[])]);seen={current};path=None
+            while queue:
+                p,route=queue.popleft()
+                if p==target:path=route;break
+                for delta,key in [((1,0),b"d"),((-1,0),b"a"),((0,-1),b"w"),((0,1),b"s")]:
+                    q=(p[0]+delta[0],p[1]+delta[1])
+                    if q not in seen and q not in blocked and valid(q):seen.add(q);queue.append((q,route+[(q,key)]))
+            if not path:
+                drain(1);blocked.clear();continue
+            q,key=path[0];before=current;data=send(key)
+            if current==before:
+                if b"Exhausted" in data:drain(1)
+                else:blocked.add(q)
+    try:
+        assert b"PAUSED" in drain(.4)
+        send(b"p");send(b"r")
+        survey=send(b"m")
+        assert b"PLANET SURVEY" in survey and b"Toxic jungle" in survey and b"grazer" in survey
+        assert not drain(.6),"survey must pause the living simulation"
+        send(b"\x7f")
+        # Rest first to leave room for meaningful energy use on this excursion.
+        send(b"z");drain(7);send(b"z")
+        walk(0,-2);assert b"Harvested Carbon" in send(b"e")
+        walk(5,0);assert b"Harvested Medicinal" in send(b"e")
+        walk(7,1);assert b"Harvested Glow fungus" in send(b"e")
+        send(b"c");send(b"\x1b[B"*5)
+        assert b"Crafted Medical kit" in send(b"\r");send(b"\x7f")
+        walk(7,-1);walk(12,-1);walk(12,0)
+        assert b"Ruin salvage:" in send(b"e")
+        assert b"Ruin already salvaged" in send(b"e")
+        send(b"r");drain(2)
+        assert b"turns hostile" in output,"exploration must encounter a hostile creature"
+        walk(12,-1);walk(4,-1);walk(0,0)
+        # Wait at the protected, powered shelter until an actual storm arrives.
+        until=time.monotonic()+130
+        while b"Weather: Toxic storm" not in output:
+            assert time.monotonic()<until,"weather transition timed out"
+            drain(2)
+        assert b"STORM WARNING" in output
+        send(b"\x1b[15~")
+        saved=save.read_text()
+        assert re.search(r"PLANTS [1-9]",saved) and re.search(r"RUINS [1-9]",saved)
+        if full_night:
+            print("  Waiting for dawn after the wildlife/flora/ruin/storm excursion...",flush=True)
+            until=time.monotonic()+160
+            while b"OBJECTIVE COMPLETE" not in output:
+                assert time.monotonic()<until,"night objective timed out"
+                drain(2)
+        send(b"\x1b[15~")
+        if full_night:
+            camp_line=next(line for line in save.read_text().splitlines() if line.startswith("CAMP "))
+            assert camp_line.split()[-1]=="1", "dawn success must persist"
+        assert b"Expedition loaded." in send(b"l")
+        send(b"p");send(b"r");assert b"PLANET SURVEY" in send(b"m");send(b"\x7f")
+        send(b"q");process.wait(timeout=3)
+        assert process.returncode==0 and termios.tcgetattr(slave)==original
+        assert b"\x1b[?1049l" in output and b"\x1b[?25h" in output
+        print("PASS: toxic planet, wildlife scan, flora, crafting, ruin loot, hostile escape, real forecast/storm, shelter, save/load",flush=True)
+    finally:
+        if process.poll() is None:process.kill();process.wait()
+        os.close(master);os.close(slave)
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="terratopia-pty-") as folder:
-        for key in (b"q", b"\x1b", b"\x03"):
-            smoke(key, Path(folder) / "expedition.save", "--full-night" in sys.argv and key == b"q")
+        for i,key in enumerate((b"q",b"\x1b",b"\x03")):
+            smoke(key,Path(folder)/f"expedition-{i}.save",False,2 if i==0 else 827193)
+        living_smoke(Path(folder)/"expedition-0.save","--full-night" in sys.argv)
         save_error_smoke(folder)

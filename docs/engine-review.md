@@ -134,3 +134,70 @@ The scope remains the first loop. Single-cell shelters and linear context checks
 are sufficient for a handful of first-session structures; no thread, async
 runtime, ECS, base editor or spaceship system was introduced. In-memory history
 can grow, saves have documented caps, and narrow HUD/help lines still clip.
+
+## Phase 3 living-world review
+
+Reviewed the current source, tests, README, validation reports, existing generator
+and save schema, and Terrabox terminal/timing/buffer/surface APIs before changing
+code. Terrabox still provides the complete low-level capability set: RAII terminal
+ownership, blocking timed input, resize, FrameClock and clipped buffered cells.
+No engine modification, dependency, background worker or replacement framework
+was needed. Existing repository history and controls were preserved.
+
+New immutable generation is in `world/profile.rs` and `world/flora.rs`.
+Generator 3 applies profile climate shifts to the same integer noise fields;
+generator 2 retains exact original classification. The profile influences
+oxygen/climate/gravity/exposure, water/vegetation, mineral yield and fauna.
+Species/AI (`wildlife.rs`) and regional weather (`weather.rs`) have independent
+salted coordinate/ID/tick streams. Weather has no growing cache. Wildlife uses
+64 active slots within radius 48; simple local moves resolve in ID order against
+terrain, refuge/player cells and occupied positions. Persistent injuries/deaths
+and loot are separate from ambient respawning. Active positions are saved too.
+
+Camp retains overlays, adding flora depletion and ruin loot. Exploration receives
+the live site query and weather-limited reveal radius; immutable generation never
+marks tiles explored. The scanner adds wildlife and environmental contacts, and
+M opens a paused survey. Rendering stays in the existing Surface/Canvas path;
+AI and exposure rules have no rendering dependency. New items/recipes append to
+existing IDs/order rather than shifting old save meanings.
+
+A single Exposure calculation combines planetary base, modest biome offsets,
+night, weather, equipment and shelter. Legacy temperature/damage semantics remain
+available. The crash shield neutralises hazardous climate/weather locally but
+keeps the planet's atmospheric oxygen rules. Energy now gates actions and resting
+or consumables restore it without a zero-energy soft lock. Instant lethal plant
+injury enters Dead before another action can pause time or use supplies.
+
+Persistence is schema 2 with explicit generator 2/3; real schema-1 fixtures import
+on generator 2. Full replacement validation happens before live state changes.
+The first overwrite of v1 creates an exact, non-overwriting .v1.bak (LF and CRLF
+coverage); conflicting backups/oversized files cause errors. Active and remembered
+creatures, plants, ruins, effects and scanned IDs have explicit caps. Weather is
+reconstructed from stored time/location, never wall-clock/offline time.
+
+Correctness review covered transaction failures, partial/full depletion, building
+on harvested plants, old shelters overlapping the new flora layer, canonical AI
+ordering, corpse loot, blocked creature movement, refuge protection, overflow at
+world edges, save limits/duplicates and unsupported version rejection. Tests
+caught the harvested-plant/shelter validation edge case and guard it permanently.
+A full real-time PTY expedition verified the connected exploration/storm/night
+loop and persisted dawn completion before loading/continuing.
+
+Representative CPU measurements are recorded in performance-phase3.md. They do
+not justify worker threads or additional caches. Remaining design limits are
+simple greedy AI, single-cell shelter, permanent flora/mineral depletion and
+bounded persistent wildlife records; no galaxy/travel/multiplayer framework was
+added. Native runtime validation on the other target platforms is still needed.
+
+## TerraGame foundation extraction
+
+Shared code now lives in the sibling TerraGame workspace. Core owns a bounded
+fixed-step clock and exact seed hashing, world owns signed chunk indexing and
+the original distance-evicted cache, and terminal owns camera positioning and a
+thin Terrabox Session adapter. TerraTopia's public game-facing wrappers, 250 ms
+step/four-step bound, terrain generators, survival tick and save schema are
+preserved. No planetary gameplay moved into the engine. TerraTopia retains its
+save-aware main loop and UI; neither the example application driver nor the
+layer composer is forced into it. Persisted wildlife IDs are deliberately left
+alone. All existing 53 tests and the actual timed full-night PTY acceptance pass
+after integration. See terragame-integration.md for file-level scope.

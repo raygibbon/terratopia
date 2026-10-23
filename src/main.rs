@@ -4,7 +4,8 @@ use std::{
     process::ExitCode,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
-use terrabox::{Event, FrameClock, Surface, Terminal};
+use terrabox::{Event, FrameClock};
+use terragame_terminal::Session;
 use terratopia::{
     game::{Game, STEP, State},
     input::{self, Action},
@@ -59,9 +60,7 @@ fn run(options: Options) -> io::Result<()> {
     } else {
         Game::new(options.seed)
     };
-    let mut terminal = Terminal::new()?;
-    terminal.hide_cursor();
-    let mut surface = Surface::new(terminal.size());
+    let mut terminal = Session::new()?;
     let mut clock = FrameClock::new(STEP, Instant::now()).expect("valid timestep");
     clock.pause();
     let mut redraw = true;
@@ -74,8 +73,8 @@ fn run(options: Options) -> io::Result<()> {
             clock.pause();
         }
         if redraw {
-            renderer::render(&mut game, &mut surface, terminal.size());
-            terminal.draw_surface(&surface, Default::default());
+            let size = terminal.size();
+            renderer::render(&mut game, &mut terminal.surface, size);
             terminal.present()?;
             redraw = false;
         }
@@ -135,7 +134,7 @@ fn main() -> ExitCode {
     match options() {
         Ok(options) if options.help => {
             println!(
-                "TerraTopia Phase 2\nUsage: terratopia [--seed <u64>] [--save <path>] [--load]\nE gather/cache; I inventory; C craft; B build; O oxygen; H help; R scan\nP pause; F5 save; F9/L load; Q/Esc save and quit; Ctrl+Q quit without saving"
+                "TerraTopia Phase 3\nUsage: terratopia [--seed <u64>] [--save <path>] [--load]\nE interact; F fight; Z rest; M survey; I inventory; C craft; B build; O oxygen; H help; R scan\nP pause; F5 save; F9/L load; Q/Esc save and quit; Ctrl+Q quit without saving"
             );
             ExitCode::SUCCESS
         }

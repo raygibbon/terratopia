@@ -19,6 +19,8 @@ pub enum Action {
     Discard,
     Save,
     Load,
+    Rest,
+    Attack,
 }
 pub fn action(event: KeyEvent) -> Option<Action> {
     if event.modifiers.contains(Modifiers::CTRL) {
@@ -47,6 +49,8 @@ pub fn action(event: KeyEvent) -> Option<Action> {
         Key::Char('x' | 'X') => Some(Action::Discard),
         Key::Function(5) => Some(Action::Save),
         Key::Function(9) | Key::Char('l' | 'L') => Some(Action::Load),
+        Key::Char('z' | 'Z') => Some(Action::Rest),
+        Key::Char('f' | 'F') => Some(Action::Attack),
         Key::Enter => Some(Action::Accept),
         Key::Char('n' | 'N') => Some(Action::NewWorld),
         Key::Char('p' | 'P' | ' ') => Some(Action::Pause),
