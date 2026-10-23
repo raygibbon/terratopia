@@ -1,30 +1,45 @@
 # Actual TerraTopia terminal captures
 
-These are unedited window captures of the running TerraTopia release binary in
-Linux xterm on X11/Xwayland, using seed 827193 at 100x30 cells. The font is
-DejaVu Sans Mono at 12pt. Capture excludes desktop surroundings and title bars.
-No generated art, compositing, text rasterization or mocked gameplay is used.
+All PNGs here are unedited captures of an actual Linux xterm window, with a
+working X11/Xwayland display, DejaVu Sans Mono 12pt and 100x30 cells. They are
+not generated art, composited UI or rasterized mock text. Client-area capture
+excludes desktop surroundings and title bars. Images were visually inspected
+for correct state, readable text and absence of personal information.
 
-- `scanner.png`: N, Enter, R. A radius-20 scan reveals 1257 total cells and four
-  sites; the three nearest signals appear in the LAST SCAN panel.
-- `exploration.png`: one D movement afterwards. Local sight returns to radius 7,
-  and the rest of the scanned area is remembered in grey. The panel explicitly
-  retains the last scan's report.
+## Phase 2
+
+- `crafting.png`: seed 827193, emergency supplies collected, iron/carbon mined,
+  mining tool crafted, crystal gathered. Shelter kit selected; ingredient rows
+  show owned/required iron, carbon and crystal.
+- `survival.png`: kit crafted and placed at the initial position, its station
+  powered with the emergency battery, and R scan performed. The player `@`
+  occupies shelter `H`, so the shelter glyph is covered; the HUD says SHELTER.
+  The neighbouring spacecraft `A` and starter resources are visible. Live fuel,
+  vitals, objective, fog and named scan signals are genuine game output.
 
 ```sh
 cargo build --release
 python3 scripts/capture-terminal.py
 ```
 
-Capture tools: Python 3, libX11, xterm, xwininfo and ImageMagick `import`, with a
-working X11/Xwayland display. These are optional developer tools, not game
-runtime dependencies. The script follows Terrabox's capture approach and sends
-synthetic X key events only to the xterm window it creates. It captures the
-window and exits via Q. Both images were visually inspected for correct fog,
-readable terrain and scanner text, and absence of personal information.
+The script follows Terrabox's capture approach, sends X key events only to the
+xterm it creates, performs the gathering/crafting/building through game controls,
+then exits via Q. An isolated temporary save path prevents replacing user saves.
+Requirements: Python 3, libX11, xterm, xwininfo, ImageMagick `import` and a working
+X11/Xwayland display. These are optional capture tools, not game dependencies.
+The blue/cyan palette overrides match Terrabox's capture script; other colours
+use xterm defaults. Colours vary with terminal themes.
 
-Palette entries blue/cyan use the same overrides as Terrabox's capture script;
-other colours follow xterm defaults. The final game uses a black background for
-wasteland to keep its magenta glyphs readable. Colours vary with terminal themes.
-These captures validate this particular emulator path, not Windows, macOS,
-Termux, SSH or physical keyboard behaviour.
+## Historical Phase 1.1
+
+- `scanner.png`: seed 827193, initial R scan, 1257 mapped cells and four sites.
+- `exploration.png`: one move after scanning, with radius-7 sight and grey memory.
+
+These older images are retained as historical artifacts. The current capture
+script produces the Phase 2 files; the new resource mix/crash overlay means the
+old scan counts are not a claim about current Phase 2 output.
+
+Captures validate this emulator path, not native Windows/macOS/Termux/SSH,
+physical keyboard behaviour or visible flicker. The full-night objective was
+validated separately by the real-time PTY smoke test; these still images do not
+claim to show a completed night.

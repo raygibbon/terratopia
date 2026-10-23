@@ -105,7 +105,7 @@ fn run(options: Options) -> io::Result<()> {
                                 }
                                 Err(e) => {
                                     game.say(format!(
-                                        "Save failed: {e}. F5 retry; Ctrl+Q quits without save."
+                                        "Save failed: Ctrl+Q quits unsaved; F5 retries. {e}"
                                     ));
                                     redraw = true;
                                 }

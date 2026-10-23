@@ -102,12 +102,22 @@ impl Camp {
     pub fn sheltered(&self, p: Point) -> bool {
         self.shelters.iter().any(|s| s.position == p)
     }
+    pub fn power_remaining(&self, p: Point) -> u16 {
+        let ship = if near(p, self.ship()) {
+            self.ship_charge
+        } else {
+            0
+        };
+        self.shelters
+            .iter()
+            .filter(|s| near(p, s.position))
+            .map(|s| s.charge)
+            .max()
+            .unwrap_or(0)
+            .max(ship)
+    }
     pub fn powered(&self, p: Point) -> bool {
-        self.ship_charge > 0 && near(p, self.ship())
-            || self
-                .shelters
-                .iter()
-                .any(|s| s.charge > 0 && near(p, s.position))
+        self.power_remaining(p) > 0
     }
     pub fn spend_power(&mut self) {
         self.ship_charge = self.ship_charge.saturating_sub(1);

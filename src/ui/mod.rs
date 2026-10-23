@@ -44,7 +44,7 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
         0,
         2,
         &format!(
-            " X {}  Y {} | {} {}C {} | {}",
+            " X {}  Y {} | {} {}C {} Fuel {}s | {}",
             game.player.x,
             game.player.y,
             biome.name(),
@@ -56,6 +56,7 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
             } else {
                 "SAFE"
             },
+            game.camp.power_remaining((game.player.x, game.player.y)),
             game.objective()
         ),
         style(11, 0),

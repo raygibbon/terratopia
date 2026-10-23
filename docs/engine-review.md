@@ -91,3 +91,46 @@ there is no persistence. Sensor radii ignore terrain occlusion. A scan's full
 visibility lasts until a successful move, with no real-time decay or cooldown.
 The panel displays only the three nearest signals and can obscure map cells,
 but not the player. HUD/status text still clips on narrow terminals.
+
+## Phase 2 survival review
+
+The current implementation, tests, capture scripts and clean Terrabox working
+tree were inspected before extending the existing architecture. Phase 1.1 work
+and subsequent repository commits were preserved; no history reset or Terrabox
+change was made. The only dependency remains the local Terrabox crate.
+
+`planet::Camp` owns the small crash-clearing overlay, guaranteed nodes, one-time
+cache, harvested amounts, shelters, station power and mission progress. It never
+mutates World chunks. Original biome/noise and existing landmark placement are
+unchanged; formerly empty site regions gain deterministic carbon/crystal.
+Inventory and recipes have separate bounded/atomic transaction logic. Equipment
+works while carried, avoiding a speculative equipment/ECS layer.
+
+Survival remains a fixed-step system with context supplied by Game. It owns
+vitals/time/environmental effects and does not draw or access files. Game owns
+state transitions, interactions, objective progression and the small message log.
+Exploration accepts a site-query callback so it can reveal the live overlay and
+omit depleted resources, while retaining its original base-world API for tests.
+The renderer only reads world/expedition state (apart from cache population).
+
+The entry point owns save/load I/O. Encoding is versioned and deterministic;
+decoding constructs and validates a replacement game before touching the live
+instance. Seed-derived landing/camp geometry is reconstructed rather than
+serialized as arbitrary terrain. Persistent mutation records remain separate
+from base terrain and survive cache eviction. Writes use create-new temporary
+files, flush and same-directory rename. A save failure leaves the game open;
+Ctrl+Q allows explicit exit without writing. Loaded games start paused, and
+menus/help/crafting/inventory/death have no simulation deadline.
+
+Review checks included transaction rollback, no resource loss on full inventory,
+no duplicated emergency cache, exact depletion bounds, tool gating, checked
+movement, negative/extreme coordinates, no stale transient scan after load,
+complete-night rather than partial-night completion, no offline time, and fuel
+freezing alongside simulation. Tests cover save parsing limits and occupied-temp
+failure without clobbering the prior save. Basic local saves are not presented
+as a cross-filesystem/cloud or universal power-loss protocol.
+
+The scope remains the first loop. Single-cell shelters and linear context checks
+are sufficient for a handful of first-session structures; no thread, async
+runtime, ECS, base editor or spaceship system was introduced. In-memory history
+can grow, saves have documented caps, and narrow HUD/help lines still clip.

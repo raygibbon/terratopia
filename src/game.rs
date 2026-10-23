@@ -96,6 +96,12 @@ impl Game {
         let game = self;
         let mut lines = vec![
             format!("Goal: {}", game.objective()),
+            format!(
+                "Crash ship A at {},{}; nearest station fuel: {}s",
+                game.camp.ship().0,
+                game.camp.ship().1,
+                game.camp.power_remaining(Camp::point(game.player))
+            ),
             "CRASH -> SCAVENGE -> GATHER -> CRAFT -> SHELTER -> NIGHT".into(),
             "E beside A: cache (pick, 2 oxygen canisters, battery).".into(),
             "Start: i iron two west; k carbon two north; v crystal two east/two south.".into(),
@@ -112,6 +118,7 @@ impl Game {
             "A/H stations refill O2 nearby when powered. Stand ON H for protection.".into(),
             "WASD/arrows move; R scans. P pauses; I/C/H screens also pause.".into(),
             "F5 saves; F9/L loads (paused). Q/Esc quits and auto-saves.".into(),
+            "Ctrl+Q quits without saving if saving fails.".into(),
             "Backspace closes screens. Up/Down scroll help. No time passes in menus.".into(),
             "Recent events:".into(),
         ];
@@ -299,7 +306,10 @@ impl Game {
         let p = Camp::point(self.player);
         if crate::planet::near(p, self.camp.ship()) && !self.camp.cache_claimed {
             let result = self.camp.scavenge(&mut self.inventory);
-            self.say(match result {Ok(())=>"Cache: salvage pick, 2 oxygen canisters, 1 battery. Gather i/k, then craft (C).",Err(e)=>e});
+            self.say(match result {
+                Ok(()) => "Cache: salvage pick, 2 oxygen canisters, 1 battery. Gather i/k, then craft (C).",
+                Err(e) => e,
+            });
         } else if matches!(
             self.camp.tile(&mut self.world, p.0, p.1).landmark,
             Some(crate::world::landmark::Landmark::Deposit(_))
