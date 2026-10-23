@@ -79,13 +79,14 @@ contacts and recovered records. The scanner shows a small local circle, never
 the whole world. The map uses coloured current sight, grey remembered terrain
 and dark `?` for unknown cells. Moving returns a scan to normal sight.
 
-Three creature categories have distinct glyphs:
+Four creature categories have distinct glyphs:
 
 | Glyph | Behaviour | Response |
 | --- | --- | --- |
 | `g` | Passive grazer | Flees when you come within four cells |
 | `d` | Defensive territorial animal | Attacks when approached within two cells or provoked |
-| `p` | Predator | Detects/chases nearby players, disengages after escape |
+| `p` | Predator | Hunts prey when hungry; warns/pursues nearby players |
+| `s` | Scavenger | Searches for uneaten remains |
 | `x` | Unlooted corpse | Stand on it and E to recover organics |
 
 Species names, health, speed, preferred biome, sensing range and storm resistance
@@ -94,15 +95,19 @@ aggression, move every few seconds and attack when cardinally adjacent. Move
 away to escape. **F** attacks an adjacent creature for eight damage and costs
 four energy. Creatures block movement and cannot stack, enter impassable ground,
 occupy the player cell or enter shelter/the crash clearing. Shelters and the
-crash field block creature attacks. Grazer/territory movement uses simple local
-steps, not complex pathfinding.
+crash field block creature attacks. Movement uses direct steps and bounded local A* around obstacles.
 
-Only a Manhattan radius of 48 cells around the player is active, capped at 64
-entities. Untouched ambient animals can respawn at their deterministic home
-when revisited. Player injuries, kills, corpse loot and storm injuries persist;
-those records are retained when their region leaves active simulation. Saved
-active positions/moods also resume correctly. Offscreen creatures are suspended,
-not simulated across the planet.
+Creatures now forage, eat, rest, flee, defend territory and hunt other animals.
+Hunger, energy, fear, age, health, habitat and weather influence their decisions.
+Plants and remains can be consumed once; births need fed mature parents and
+regional capacity. Every activated animal retains a persistent identity.
+
+Individuals activate within 48 cells around the player, with a 1,024-record
+stress ceiling. Dormant regions retain records and bounded population summaries;
+only summaries advance each minute. Reloading terrain cannot reset kills or food.
+The [ecosystem architecture](docs/ecosystem.md) explains identity, scheduling,
+limits, approximate dormancy and save migration. Measured 100/1,000 active and
+10,000 dormant workloads are in [Phase 4 performance](docs/performance-phase4.md).
 
 ## Planet profiles and weather
 
@@ -244,13 +249,15 @@ is drawn; remembered map cells never display stale creature positions.
 
 ## Saves and compatibility
 
-Current files use **TERRATOPIA_SAVE 2** and explicitly store generator **2 or 3**.
+Current files use **TERRATOPIA_SAVE 3** and explicitly store generator **2 or 3**.
 Schema 1 / generator 2 files are imported with their **exact original terrain**,
 seed, coordinates, inventory, shelters, resources, fog and night progress. Legacy
 worlds use neutral legacy planetary parameters; their new ecology/weather layer
 is additive. They do not silently switch to generator 3 terrain.
 
-On the first write over a schema-1 file, an exact `.v1.bak` copy is created,
+Schemas 1 and 2 import with their existing creature IDs and explicit default
+needs; saved actors become retained residents. On first overwrite, an exact
+`.v1.bak` or `.v2.bak` copy is created,
 including original line endings. A conflicting different backup causes a clear
 save error rather than replacement. The upgraded file retains generator 2. New
 expeditions use generator 3; there are no migrations from unknown future schemas
@@ -266,7 +273,8 @@ save keeps the game open so F5 can retry or Ctrl+Q can exit without writing.
 Writes use an exclusive same-directory temporary file, flush and rename; failed
 writes preserve the prior save. Limits: 8 MiB; 1,000 shelters; 100,000 harvested
 mineral/plant cells, fog discoveries or scanned creatures; 20,000 fog chunks;
-10,000 looted ruins and persistent creature records; 64 active creatures.
+10,000 looted ruins, persistent creature records and region summaries;
+1,024 active creature records. Population/needs/time records use schema 3.
 Unsupported/malformed/oversized data is rejected. There is no cloud sync or
 universal filesystem/power-loss guarantee. Use separate `--save` paths for
 multiple expeditions; a fresh landing uses the selected file on the next save.
@@ -315,3 +323,16 @@ weather particles, food/thirst simulation, massive recipe catalogue, spaceship
 travel, galaxies or multiplayer. Next: balance/playtest this loop, improve local
 AI/navigation where needed, and validate native Windows/macOS/Termux before
 expanding the planetary simulation.
+
+## Phase 4 living ecosystem
+
+See [architecture](docs/ecosystem.md), [measured performance](docs/performance-phase4.md)
+and [validation and limitations](docs/validation-phase4.md). Run the release workloads:
+
+```sh
+cargo run --release --example ecosystem_benchmark
+```
+
+[Actual ecosystem gameplay](assets/screenshots/ecosystem.png) ·
+[Creature inspection](assets/screenshots/ecosystem-inspection.png).
+Capture these with `python3 scripts/capture-ecosystem.py` on X11/Xwayland.

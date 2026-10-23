@@ -13,7 +13,7 @@ use std::{
     path::Path,
 };
 const LIMIT: u64 = 8 * 1024 * 1024;
-const HEADER: &str = "TERRATOPIA_SAVE 2";
+const HEADER: &str = "TERRATOPIA_SAVE 3";
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
@@ -67,6 +67,7 @@ pub fn encode(game: &Game) -> io::Result<String> {
         || game.wildlife.active.len() > crate::wildlife::MAX_ACTIVE
         || game.wildlife.memory.len() > crate::wildlife::MAX_MEMORY
         || game.wildlife.scanned.len() > 100_000
+        || game.wildlife.populations.len() > crate::wildlife::MAX_REGIONS
     {
         return Err(invalid("Save entry limit exceeded"));
     }
@@ -141,6 +142,23 @@ pub fn encode(game: &Game) -> io::Result<String> {
     for &(x, y, slot) in &game.wildlife.scanned {
         writeln!(out, "ID {x} {y} {slot}").unwrap();
     }
+    writeln!(out, "ECOSYSTEM {}", game.survival.ticks()).unwrap();
+    writeln!(out, "POPULATIONS {}", game.wildlife.populations.len()).unwrap();
+    for (&(x, y), p) in &game.wildlife.populations {
+        writeln!(
+            out,
+            "POPULATION {x} {y} {} {} {} {} {} {} {} {}",
+            p.counts[0],
+            p.counts[1],
+            p.counts[2],
+            p.counts[3],
+            p.food,
+            p.capacity,
+            p.epoch,
+            p.next_slot
+        )
+        .unwrap();
+    }
     out.push_str("END\n");
     if out.len() as u64 > LIMIT {
         return Err(invalid("Save exceeds 8 MiB limit"));
@@ -150,7 +168,7 @@ pub fn encode(game: &Game) -> io::Result<String> {
 fn write_actor(out: &mut String, name: &str, state: crate::wildlife::CreatureState) {
     writeln!(
         out,
-        "{name} {} {} {} {} {} {} {} {}",
+        "{name} {} {} {} {} {} {} {} {} {} {} {} {} {}",
         state.id.0,
         state.id.1,
         state.id.2,
@@ -158,18 +176,39 @@ fn write_actor(out: &mut String, name: &str, state: crate::wildlife::CreatureSta
         state.position.1,
         state.health,
         u8::from(state.angry),
-        u8::from(state.looted)
+        u8::from(state.looted),
+        state.needs.hunger,
+        state.needs.energy,
+        state.needs.fear,
+        state.needs.age,
+        state.needs.activity as u8
     )
     .unwrap();
 }
-fn read_actor(parser: &mut Parser<'_>, name: &str) -> io::Result<crate::wildlife::CreatureState> {
-    let r = parser.row(name, 8)?;
+fn read_actor(
+    parser: &mut Parser<'_>,
+    name: &str,
+    version: u8,
+) -> io::Result<crate::wildlife::CreatureState> {
+    let r = parser.row(name, if version >= 3 { 13 } else { 8 })?;
     Ok(crate::wildlife::CreatureState {
         id: (num(r[0])?, num(r[1])?, num(r[2])?),
         position: (num(r[3])?, num(r[4])?),
         health: num(r[5])?,
         angry: boolean(r[6])?,
         looted: boolean(r[7])?,
+        needs: if version >= 3 {
+            crate::wildlife::Needs {
+                hunger: num(r[8])?,
+                energy: num(r[9])?,
+                fear: num(r[10])?,
+                age: num(r[11])?,
+                activity: crate::wildlife::Activity::from_id(num(r[12])?)
+                    .ok_or_else(|| invalid("Unknown creature activity"))?,
+            }
+        } else {
+            crate::wildlife::Needs::default()
+        },
     })
 }
 struct Parser<'a> {
@@ -216,11 +255,15 @@ pub fn decode(text: &str) -> io::Result<Game> {
     };
     let version = match parser.lines.next() {
         Some("TERRATOPIA_SAVE 1") => 1,
-        Some(HEADER) => 2,
-        _ => return Err(invalid("Unsupported save version; expected 1 or 2")),
+        Some("TERRATOPIA_SAVE 2") => 2,
+        Some(HEADER) => 3,
+        _ => return Err(invalid("Unsupported save version; expected 1, 2 or 3")),
     };
     let generator = num::<u8>(parser.row("GENERATOR", 1)?[0])?;
-    if !matches!((version, generator), (1, 2) | (2, 2) | (2, 3)) {
+    if !matches!(
+        (version, generator),
+        (1, 2) | (2, 2) | (2, 3) | (3, 2) | (3, 3)
+    ) {
         return Err(invalid(
             "Incompatible generator: v1 requires generator 2; v2 supports 2 and 3",
         ));
@@ -318,7 +361,7 @@ pub fn decode(text: &str) -> io::Result<Game> {
             return Err(invalid("Duplicate discovery"));
         }
     }
-    if version == 2 {
+    if version >= 2 {
         let r = parser.row("LIVING", 2)?;
         game.filter_ticks = num(r[0])?;
         game.resting = boolean(r[1])?;
@@ -357,8 +400,9 @@ pub fn decode(text: &str) -> io::Result<Game> {
             }
         }
         for _ in 0..parser.count("MEMORY", crate::wildlife::MAX_MEMORY)? {
-            let state = read_actor(&mut parser, "CREATURE")?;
-            if !crate::wildlife::Wildlife::validate_record(&mut game.world, &game.camp, state)
+            let state = read_actor(&mut parser, "CREATURE", version)?;
+            if version < 3 && state.id.2 > 5
+                || !crate::wildlife::Wildlife::validate_record(&mut game.world, &game.camp, state)
                 || game.wildlife.memory.insert(state.id, state).is_some()
             {
                 return Err(invalid("Invalid or duplicate persistent creature"));
@@ -367,14 +411,15 @@ pub fn decode(text: &str) -> io::Result<Game> {
         let mut ids = std::collections::BTreeSet::new();
         let mut positions = std::collections::BTreeSet::new();
         for _ in 0..parser.count("ACTORS", crate::wildlife::MAX_ACTIVE)? {
-            let state = read_actor(&mut parser, "ACTOR")?;
-            if !crate::wildlife::Wildlife::validate_record(&mut game.world, &game.camp, state)
+            let state = read_actor(&mut parser, "ACTOR", version)?;
+            if version < 3 && state.id.2 > 5
+                || !crate::wildlife::Wildlife::validate_record(&mut game.world, &game.camp, state)
                 || !ids.insert(state.id)
                 || state.health > 0
                     && (!positions.insert(state.position)
                         || state.position == (game.player.x, game.player.y))
                 || crate::wildlife::distance(state.position, (game.player.x, game.player.y))
-                    > i128::from(crate::wildlife::ACTIVE_RADIUS)
+                    > i128::from(crate::wildlife::ACTIVE_RADIUS + 12)
                 || game
                     .wildlife
                     .memory
@@ -399,6 +444,52 @@ pub fn decode(text: &str) -> io::Result<Game> {
             }
         }
     }
+    if version >= 3 {
+        game.wildlife.time = num(parser.row("ECOSYSTEM", 1)?[0])?;
+        if game.wildlife.time != game.survival.ticks() {
+            return Err(invalid("Ecosystem time differs from simulation time"));
+        }
+        for _ in 0..parser.count("POPULATIONS", crate::wildlife::MAX_REGIONS)? {
+            let r = parser.row("POPULATION", 10)?;
+            let key = (num::<i64>(r[0])?, num::<i64>(r[1])?);
+            let p = crate::wildlife::Population {
+                counts: [num(r[2])?, num(r[3])?, num(r[4])?, num(r[5])?],
+                food: num(r[6])?,
+                capacity: num(r[7])?,
+                epoch: num(r[8])?,
+                next_slot: num(r[9])?,
+            };
+            if !(i64::MIN / 32..=i64::MAX / 32).contains(&key.0)
+                || !(i64::MIN / 32..=i64::MAX / 32).contains(&key.1)
+                || p.counts
+                    .iter()
+                    .any(|&n| n > crate::wildlife::REGION_CAPACITY)
+                || p.counts.iter().map(|&n| u32::from(n)).sum::<u32>()
+                    > u32::from(crate::wildlife::REGION_CAPACITY)
+                || p.food > 120
+                || p.capacity > crate::wildlife::REGION_CAPACITY
+                || p.capacity == 0
+                || p.epoch > game.wildlife.time / 240
+                || !(32..=256).contains(&p.next_slot)
+                || game.wildlife.populations.insert(key, p).is_some()
+            {
+                return Err(invalid("Invalid population summary"));
+            }
+        }
+        game.wildlife
+            .restore_regions((game.player.x, game.player.y));
+        game.wildlife
+            .validate_populations(&mut game.world, &game.camp)
+            .map_err(invalid)?;
+    } else {
+        game.wildlife.time = game.survival.ticks();
+        // Upgrade old ambient actors into retained residents, preserving tuple IDs.
+        for c in &game.wildlife.active {
+            game.wildlife.memory.insert(c.state.id, c.state);
+        }
+        game.wildlife
+            .migrate_populations(&mut game.world, &game.camp);
+    }
     for shelter in &game.camp.shelters {
         let tile = game
             .camp
@@ -422,6 +513,9 @@ pub fn decode(text: &str) -> io::Result<Game> {
     game.wildlife
         .active
         .sort_by_key(|creature| creature.state.id);
+    game.wildlife.rebuild_index();
+    game.wildlife
+        .restore_regions((game.player.x, game.player.y));
     game.exploration.recount();
     game.world.focus(game.player.x, game.player.y);
     game.started = true;
@@ -434,7 +528,7 @@ pub fn decode(text: &str) -> io::Result<Game> {
     } else {
         State::Paused
     };
-    game.say(if version==1 {"Expedition loaded. Legacy terrain retained; next save upgrades to v2 with .v1.bak backup. P resumes."}else{"Expedition loaded. P resumes; M surveys living-world conditions."});
+    game.say(if version==1 {"Expedition loaded. Legacy terrain retained; next save upgrades to v3 with .v1.bak backup. P resumes."}else{"Expedition loaded. P resumes; M surveys living-world conditions."});
     Ok(game)
 }
 pub fn save(game: &Game, path: &Path) -> io::Result<()> {
@@ -447,9 +541,13 @@ pub fn save(game: &Game, path: &Path) -> io::Result<()> {
                 "Existing save is oversized; choose another path to preserve it",
             ));
         }
-        if old.lines().next() == Some("TERRATOPIA_SAVE 1") {
+        if let Some(version) = old.lines().next().and_then(|line| match line {
+            "TERRATOPIA_SAVE 1" => Some(1),
+            "TERRATOPIA_SAVE 2" => Some(2),
+            _ => None,
+        }) {
             let mut backup = path.as_os_str().to_os_string();
-            backup.push(".v1.bak");
+            backup.push(format!(".v{version}.bak"));
             let backup = std::path::PathBuf::from(backup);
             if backup.exists() {
                 if fs::metadata(&backup)?.len() != old.len() as u64

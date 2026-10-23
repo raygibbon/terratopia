@@ -134,7 +134,8 @@ def capture():
             if process.poll() is None:process.terminate();process.wait(timeout=5)
     print("Captured real Phase 3 xterm gameplay, survey, crafting and storm",flush=True)
 
-try:
-    capture()
-finally:
-    x.XCloseDisplay(DISPLAY)
+if __name__ == "__main__":
+    try:
+        capture()
+    finally:
+        x.XCloseDisplay(DISPLAY)

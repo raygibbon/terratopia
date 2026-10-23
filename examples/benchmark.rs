@@ -66,11 +66,12 @@ fn main() {
     let initial = simulation.wildlife.active.len();
     let start = Instant::now();
     for tick in (4..=4000).step_by(4) {
-        black_box(
-            simulation
-                .wildlife
-                .tick(&mut simulation.world, &simulation.camp, point, tick),
-        );
+        black_box(simulation.wildlife.tick(
+            &mut simulation.world,
+            &mut simulation.camp,
+            point,
+            tick,
+        ));
     }
     println!(
         "creature simulation: 1000 one-second updates in {:?}; {} active, {} alive at end",

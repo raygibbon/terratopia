@@ -201,3 +201,15 @@ save-aware main loop and UI; neither the example application driver nor the
 layer composer is forced into it. Persisted wildlife IDs are deliberately left
 alone. All existing 53 tests and the actual timed full-night PTY acceptance pass
 after integration. See terragame-integration.md for file-level scope.
+
+## Phase 4 ecosystem
+
+Reviewed all three repositories and measured the existing workloads before
+extending wildlife. Persistent tuple identities and generators remain unchanged.
+The implementation uses TerraGame's generational arena lookup, spatial queries,
+Scheduler, ActiveRegions and bounded EventQueue while keeping ecological rules
+in TerraTopia. Generic bounded local A* was added to TerraGame. Terrabox needed
+no changes. Dense game-facing records were retained to preserve the working UI.
+See [ecosystem architecture](ecosystem.md), [performance](performance-phase4.md)
+and [validation](validation-phase4.md) for the design, migration, actual results
+and explicit limits. These supersede the Phase 3 wildlife/save-cap descriptions.

@@ -173,7 +173,7 @@ impl Game {
                 self.wildlife.active.len(),
                 self.wildlife.scanned.len()
             ),
-            "g grazer (flees) / d defender (territorial) / p predator (chases)".into(),
+            "g grazer / d territorial defender / p predator / s scavenger".into(),
             format!(
                 "Ruins salvaged {} / plants harvested {} / filter {}s",
                 self.camp.looted_ruins.len(),
@@ -202,10 +202,14 @@ impl Game {
                 if c.state.angry {
                     "HOSTILE"
                 } else {
-                    c.species.behaviour.name()
+                    c.state.needs.activity.name()
                 },
                 c.state.position.0,
                 c.state.position.1
+            ));
+            lines.push(format!(
+                "  Hunger {} / energy {} / fear {}",
+                c.state.needs.hunger, c.state.needs.energy, c.state.needs.fear
             ));
         }
         lines.push("Last scan contacts:".into());
@@ -695,10 +699,16 @@ impl Game {
                 ));
                 redraw = true;
             }
+            if context.weather.current != self.last_weather.current {
+                self.wildlife
+                    .notify(crate::wildlife::EcosystemEvent::WeatherChanged(
+                        context.weather.current as u8,
+                    ));
+            }
             self.last_weather = context.weather;
             let (injury, events) = self.wildlife.tick(
                 &mut self.world,
-                &self.camp,
+                &mut self.camp,
                 Camp::point(self.player),
                 self.survival.ticks(),
             );
@@ -707,6 +717,10 @@ impl Game {
                 self.say(format!("Wildlife attack: -{injury} HP. Escape or F fight!"));
                 redraw = true;
             }
+            // Gameplay queue is bounded and separate from UI messages. Rules
+            // commit at their source; consumers observe in stable FIFO order.
+            self.wildlife.events.drain().for_each(drop);
+            redraw |= self.survival.ticks().is_multiple_of(4);
             for event in events.into_iter().take(2) {
                 self.say(event);
                 redraw = true;

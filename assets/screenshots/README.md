@@ -59,3 +59,10 @@ Captures validate this emulator path, not native Windows/macOS/Termux/SSH,
 physical keyboard behaviour or visible flicker. The full-night objective was
 validated separately by the real-time PTY smoke test; these still images do not
 claim to show a completed night.
+
+## Phase 4
+
+`ecosystem.png` and `ecosystem-inspection.png` are actual xterm captures of the
+Phase 4 release binary, seed 827193, using `scripts/capture-ecosystem.py`. The
+second shows the paused M inspection with behaviour, health, hunger, energy and
+fear. These are terminal gameplay captures, not concept art.

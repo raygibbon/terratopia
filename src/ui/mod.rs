@@ -96,10 +96,20 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
         ),
         style(11, 0),
     );
+    let predator_visible = game.wildlife.active.iter().any(|c| {
+        c.state.health > 0
+            && c.species.behaviour == crate::wildlife::Behaviour::Predator
+            && game
+                .exploration
+                .visibility(c.state.position.0, c.state.position.1)
+                == crate::exploration::Visibility::Visible
+    });
     let warning = if game.survival.oxygen == 0 {
         "SUFFOCATING! O: oxygen. "
     } else if game.survival.oxygen <= 25 {
         "LOW OXYGEN! O: canister. "
+    } else if predator_visible {
+        "PREDATOR NEARBY! "
     } else {
         ""
     };

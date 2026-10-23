@@ -30,3 +30,12 @@ plan; neither was forced into this extraction.
 See the TerraGame README, architecture, validation and performance reports in
 `../terragame/` for the reusable APIs, two runnable terminal examples, benchmarks
 and remaining limitations.
+
+## Phase 4
+
+Wildlife now uses EntityStore for transient identity/index lookup, SpatialIndex
+for occupancy and nearby contacts, Scheduler for one-second AI/minute demographics,
+ActiveRegions for activation keys and EventQueue for bounded gameplay facts.
+Terragame-world's new navigation module provides budgeted local A*; species,
+resource/food interactions, population summaries, save migration and terminal
+inspection remain TerraTopia's responsibility. See [ecosystem.md](ecosystem.md).

@@ -169,7 +169,7 @@ fn grazers_flee_defenders_guard_and_predators_pursue_then_disengage() {
     let before = distance(grazer.state.position, player);
     grazers.active.push(grazer);
     for tick in (4..=32).step_by(4) {
-        grazers.tick(&mut g.world, &g.camp, player, tick);
+        grazers.tick(&mut g.world, &mut g.camp, player, tick);
     }
     assert!(distance(grazers.active[0].state.position, player) > before);
     assert!(!grazers.active[0].state.angry);
@@ -177,7 +177,7 @@ fn grazers_flee_defenders_guard_and_predators_pursue_then_disengage() {
     guards
         .active
         .push(Wildlife::prototype(&mut g.world, &g.camp, (origin.0, origin.1, 4)).unwrap());
-    let (damage, _) = guards.tick(&mut g.world, &g.camp, g.camp.offset(10, 0), 4);
+    let (damage, _) = guards.tick(&mut g.world, &mut g.camp, (origin.0 + 10, origin.1), 4);
     assert!(damage > 0);
     assert!(guards.active[0].state.angry);
     let mut predators = Wildlife::default();
@@ -187,11 +187,11 @@ fn grazers_flee_defenders_guard_and_predators_pursue_then_disengage() {
     let player = g.camp.offset(13, 0);
     let before = distance(predators.active[0].state.position, player);
     for tick in (4..=40).step_by(4) {
-        predators.tick(&mut g.world, &g.camp, player, tick);
+        predators.tick(&mut g.world, &mut g.camp, player, tick);
     }
     assert!(distance(predators.active[0].state.position, player) < before);
     assert!(predators.active[0].state.angry);
-    let (damage, _) = predators.tick(&mut g.world, &g.camp, g.camp.origin, 44);
+    let (damage, _) = predators.tick(&mut g.world, &mut g.camp, origin, 44);
     assert_eq!(damage, 0);
     assert!(!predators.active[0].state.angry);
 }
@@ -204,7 +204,7 @@ fn creatures_never_overlap_or_enter_blocked_ground_player_or_shelter() {
         charge: 0,
     });
     for tick in (4..=240).step_by(4) {
-        let (damage, _) = g.wildlife.tick(&mut g.world, &g.camp, player, tick);
+        let (damage, _) = g.wildlife.tick(&mut g.world, &mut g.camp, player, tick);
         assert_eq!(damage, 0);
         let mut positions = BTreeSet::new();
         for c in &g.wildlife.active {
@@ -509,7 +509,7 @@ fn genuine_v1_fixture_retains_progress_and_exact_legacy_generation() {
         assert_eq!(g.world.tile(x, -31), terrain::generate_legacy(42, x, -31));
     }
     let upgraded = persistence::encode(&g).unwrap();
-    assert!(upgraded.starts_with("TERRATOPIA_SAVE 2\nGENERATOR 2\n"));
+    assert!(upgraded.starts_with("TERRATOPIA_SAVE 3\nGENERATOR 2\n"));
     assert_eq!(
         persistence::decode(&upgraded).unwrap().inventory,
         g.inventory
@@ -540,7 +540,7 @@ fn genuine_v1_fixture_retains_progress_and_exact_legacy_generation() {
     assert!(
         fs::read_to_string(&path)
             .unwrap()
-            .starts_with("TERRATOPIA_SAVE 2")
+            .starts_with("TERRATOPIA_SAVE 3")
     );
     fs::remove_dir_all(dir).unwrap();
 }
@@ -557,7 +557,7 @@ fn v2_roundtrip_preserves_weather_effects_records_and_rejects_invalid_extensions
     assert_eq!(loaded.wildlife.active, g.wildlife.active);
     assert_eq!(loaded.weather(), g.weather());
     for invalid in [
-        text.replace("SAVE 2", "SAVE 3"),
+        text.replace("SAVE 3", "SAVE 9"),
         text.replace("GENERATOR 3", "GENERATOR 9"),
         text.replace("LIVING 400 1", "LIVING 9999 1"),
         text.replace("ACTORS ", "ACTORS 999999 "),

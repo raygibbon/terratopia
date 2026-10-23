@@ -107,7 +107,7 @@ def smoke(exit_key, save, full_night=False, seed=827193):
         assert b"Oxygen station powered" in send(b"e")
         assert b"Expedition saved." in send(b"\x1b[15~")
         saved = save.read_text()
-        assert "TERRATOPIA_SAVE 2" in saved and "SHELTERS 1" in saved
+        assert "TERRATOPIA_SAVE 3" in saved and "SHELTERS 1" in saved
         assert "HARVESTED 3" in saved
         assert f" X {x+1}  Y {y}".encode() in send(b"d")
         loaded = send(b"\x1b[20~")  # F9
