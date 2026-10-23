@@ -76,7 +76,7 @@ fn main() -> ExitCode {
     match seed_from_args() {
         Ok(None) => {
             println!(
-                "TerraTopia\nUsage: terratopia [--seed <u64>]\nEnter/N: new world; Enter: land; WASD/arrows: move; P: pause; Q/Esc: quit"
+                "TerraTopia\nUsage: terratopia [--seed <u64>]\nEnter/N: new world; Enter: land; WASD/arrows: move; R: scan; P: pause; Q/Esc: quit"
             );
             ExitCode::SUCCESS
         }

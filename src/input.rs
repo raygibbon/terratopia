@@ -5,6 +5,7 @@ pub enum Action {
     Accept,
     NewWorld,
     Pause,
+    Scan,
     Menu,
     Quit,
 }
@@ -20,6 +21,7 @@ pub fn action(event: KeyEvent) -> Option<Action> {
         Key::Down | Key::Char('s' | 'S') => Some(Action::Move(0, 1)),
         Key::Left | Key::Char('a' | 'A') => Some(Action::Move(-1, 0)),
         Key::Right | Key::Char('d' | 'D') => Some(Action::Move(1, 0)),
+        Key::Char('r' | 'R') => Some(Action::Scan),
         Key::Enter => Some(Action::Accept),
         Key::Char('n' | 'N') => Some(Action::NewWorld),
         Key::Char('p' | 'P' | ' ') => Some(Action::Pause),

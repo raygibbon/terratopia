@@ -73,16 +73,28 @@ def smoke(exit_key):
         match = re.search(rb" X (-?\d+)  Y (-?\d+)", initial)
         assert match, initial[-1000:]
         x, y = map(int, match.groups())
+        assert b"?" in initial, "fog must hide undiscovered terrain"
+        scanned = send(b"r")
+        assert b"Scan:" in scanned and b"LAST SCAN" in scanned
+        assert scanned.count(b"?") < initial.count(b"?"), "scan must replace unknown map cells"
+        assert b"i Iron  c Copper  s Silica" in scanned, "resource legend missing"
+        assert re.search(rb"Scan: \+1108 cells, \+\d+ sites", scanned), scanned[-1000:]
+        assert b"Scan: +0 cells, +0 sites." in send(b"R"), "repeat scan must deduplicate"
         assert f" X {x+1}  Y {y}".encode() in send(b"d")
         assert f" X {x}  Y {y}".encode() in send(b"\x1b[D")
         idle()  # Playing has a sleeping clock but no unchanged presentations.
         assert b"PAUSED" in send(b"p")
         idle()
         assert not send(b"w"), "movement while paused must do nothing"
+        assert not send(b"r"), "scanner must be inactive while paused"
         assert b"Need 40x12" in resize(20, 6)
         assert b"PAUSED" in resize(100, 30)
         assert b"PAUSED" not in send(b"p")
         assert f" X {x}  Y {y+1}".encode() in send(b"\x1b[B")
+        assert b"Scan:" in send(b"r"), "scan after movement/resize failed"
+        send(b"p"); send(b"m"); send(b"n")
+        restarted = send(b"\r")
+        assert b"Mapped 149" in restarted and b"LAST SCAN" not in restarted
         send(exit_key)
         process.wait(timeout=3)
         drain(.05)
@@ -91,7 +103,7 @@ def smoke(exit_key):
         assert b"\x1b[?1049l" in output, "alternate screen not left"
         assert b"\x1b[?25h" in output, "cursor not restored"
         assert b"panicked" not in output
-        print(f"PASS: menu, landing, WASD/arrows, pause, resize, {exit_key!r} exit, restoration")
+        print(f"PASS: menu, landing, scan, repeat scan, fog, WASD/arrows, pause, resize, restart, {exit_key!r} exit, restoration")
     finally:
         if process.poll() is None:
             process.kill()

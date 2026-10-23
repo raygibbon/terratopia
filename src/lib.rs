@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod entities;
+pub mod exploration;
 pub mod game;
 pub mod input;
 pub mod renderer;

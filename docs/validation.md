@@ -1,54 +1,71 @@
-# Phase 1 validation
+# Phase 1.1 validation
 
 Date: 23 October 2026. Host: Linux x86_64, stable rustc 1.97.1 / cargo 1.97.1.
-All source changes are inside TerraTopia. Terrabox remains unchanged.
+Existing architecture and Git history are preserved. Terrabox is unchanged and
+its working tree remains clean. No new dependencies were introduced.
 
 | Check | Result |
 | --- | --- |
 | `cargo fmt --all --check` | Pass |
 | `cargo clippy --all-targets -- -D warnings` | Pass |
-| `cargo test` | Pass: 12 system tests |
+| `cargo test` | Pass: 22 tests (12 existing, 10 exploration tests) |
 | `cargo build --release` | Pass |
-| `cargo check --target x86_64-pc-windows-gnu` | Pass; cross-check only |
-| `python3 scripts/smoke-terminal.py` | Pass for Q, Escape and Ctrl+C exit runs |
-| CLI `--help`, malformed negative seed | Usage/help and error behaviour checked |
+| `cargo check --target x86_64-pc-windows-gnu` | Pass; compilation cross-check only |
+| `python3 scripts/smoke-terminal.py` | Pass in Unix PTYs for Q, Escape and Ctrl+C exit runs |
+| `cargo run --release --example benchmark` | Executed; five-sample comparison recorded |
+| `python3 scripts/capture-terminal.py` | Pass: two actual xterm PNG captures |
 | `git diff --check` | Pass |
-| Terrabox working-tree status | Clean; no source changes |
 
-The Rust tests exercise seed/coordinate reproducibility independent of cache
-capacity and traversal order, direct versus chunk generation across positive and
-negative boundaries, extreme i64 coordinates, all seven generated/classified
-biomes, coherent neighbour samples, collision/cardinal movement, cache bounds and
-distance eviction, camera centring and edge clamping, resize/tiny dimensions,
-input/modifiers, menu/new-world/pause/restart/quit, paused simulation and bounded
-catch-up, surface/HUD/player/overlay rendering, and deterministic walkable landing
-sites without cache prewarming.
+The original tests retain deterministic seed/order/cache checks, positive and
+negative chunk boundaries, i64 extremes, biome classification, coherence,
+collision/cardinal movement, cache eviction, camera/resize/tiny dimensions,
+input/modifiers, states, bounded simulation and landing-site checks.
 
-The PTY script launches the actual release binary with seed 827193 and a
-controlling terminal, following Terrabox's documented PTY smoke approach. Each
-run enters the menu and landing screen, lands, moves with WASD and arrows, pauses,
-checks that paused movement is ignored, resizes to 20x6 and back to 100x30,
-resumes, moves again and quits. Exact termios restoration, alternate-screen exit,
-cursor restoration and successful exit are asserted. A small-window message
-initially clipped its required dimensions at 20 columns; the test exposed this
-and the shortened message now passes.
+New coverage checks:
 
-Across three runs, the script sampled main-menu, playing-idle and paused states
-for 600ms each. All nine samples recorded **0 CPU ticks** through Linux `/proc`
-and **no terminal output**. These short checks support the idle policy; they
-are not a long-duration performance benchmark. Playing still wakes four times
-per second to update its simulation clock; menu/pause block without deadlines.
+- Every tile in selected positive, negative and extreme chunks matches the
+  independent coordinate generator after lattice reuse (three seeds).
+- All six landmark kinds occur, including three resource types with distinct
+  glyphs and colours; features cross positive and negative chunk boundaries.
+- Generating terrain does not explore it; exploration survives cache eviction.
+- Circular radius-7 sight and radius-20 scanning, correct edge exclusions,
+  scan deduplication and visibility at opposite i64 world limits.
+- Remembered versus unknown versus visible rendering, read-only fog rendering,
+  scan input, paused scan suppression, expedition reset and cache counters.
+- The scan panel does not hide the player at the right world boundary.
 
-No physical interactive keyboard/font/colour/flicker sign-off was performed in a
-visible emulator. PTY input and resize tests are automated behavioural tests,
-not visual certification. Native Windows, macOS, SSH and Android/Termux runtime
-tests were not performed. The Windows result checks Rust compilation only.
-Forced termination/abort recovery was not claimed.
+The actual release-binary PTY script enters menu/landing, confirms fog glyphs,
+scans, checks the resource legend/report and reduction in unknown map output,
+checks repeat scans report zero new cells/sites, moves with WASD and arrows,
+pauses, confirms movement/scanning are ignored, resizes to 20x6 then 100x30,
+resumes, scans again, starts a fresh expedition and confirms its knowledge reset.
+Each run asserts successful exit, exact termios restoration, alternate-screen
+exit and cursor restoration. Q, Escape and Ctrl+C are tested separately.
 
-Remaining limits: vitals are static, days have no lighting effects, there is no
-persistence or resource interaction, disconnected land can constrain walking,
-long HUD text clips in narrow terminals, and huge viewports can exceed the
-128-chunk cache. The implementation review is recorded in
-[engine-review.md](engine-review.md). Recommended next milestone: oxygen and
-basic environmental hazards, followed by inventory and resource collection,
-alongside native terminal validation on the remaining platforms.
+All nine 600ms menu, playing-idle and paused samples recorded **0 CPU ticks**
+through Linux `/proc` and **no terminal output**. Playing still wakes four times
+per second; menu/pause block without deadlines. These are short smoke checks.
+
+Two real Linux xterm screenshots were captured using the final release binary
+and inspected visually. They show the scan and the remembered terrain after
+movement, with named silica deposits and geological signals. Capture inspection
+exposed poor wasteland contrast; its background is now black. Landmark glyphs
+also use black backgrounds for contrast across the underlying biomes. The PNGs
+contain no personal information. Reproduction and emulator details are in
+[the capture guide](../assets/screenshots/README.md).
+
+No physical keyboard session, visible flicker/latency benchmark, native Windows,
+macOS, SSH or Android/Termux runtime tests were performed. Xterm capture/input
+uses synthetic X key events; PTY tests use real terminal byte input. Neither
+certifies all terminals or native console hosts. Windows was cross-checked only.
+Forced termination/abort recovery is not claimed.
+
+See [performance.md](performance.md) for measurements, including the absence of
+a demonstrated scrolling speedup, and [engine-review.md](engine-review.md) for
+ownership and overflow review.
+
+Limits: static vitals, no mining/inventory/persistence, non-occluded sensor sight,
+unbounded expedition knowledge, a three-signal last-scan panel, narrow-screen
+clipping and huge-viewport cache thrashing. Recommended next milestone: resource
+collection/inventory plus oxygen and basic environmental hazards, alongside
+native runtime checks on the remaining target platforms.

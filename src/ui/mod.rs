@@ -16,11 +16,13 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
         0,
         1,
         &format!(
-            " HP {}  O2 {}  Energy {} | Day {}",
+            " HP {}  O2 {}  Energy {} | Day {} | Mapped {} | Sites {}",
             game.survival.health,
             game.survival.oxygen,
             game.survival.energy,
-            game.survival.day()
+            game.survival.day(),
+            game.exploration.explored_cells(),
+            game.exploration.discovered_sites()
         ),
         style(15, 0),
     );
@@ -35,11 +37,11 @@ pub fn hud(canvas: &mut Canvas<'_>, game: &mut Game) {
         ),
         style(11, 0),
     );
-    canvas.put_str(0, size.height.saturating_sub(2), game.message, style(7, 0));
+    canvas.put_str(0, size.height.saturating_sub(2), &game.message, style(7, 0));
     canvas.put_str(
         0,
         size.height.saturating_sub(1),
-        "WASD/Arrows Move | P Pause | Q/Esc Quit",
+        "WASD/Arrows Move | R Scan | P Pause | Q/Esc Quit",
         style(14, 0),
     );
 }

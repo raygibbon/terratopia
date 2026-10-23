@@ -1,5 +1,6 @@
 use crate::{
     entities::player::Player,
+    exploration::{Exploration, ScanReport},
     input::Action,
     survival::Survival,
     world::{World, seed::planet_name},
@@ -20,7 +21,9 @@ pub struct Game {
     pub player: Player,
     pub survival: Survival,
     pub planet: String,
-    pub message: &'static str,
+    pub message: String,
+    pub exploration: Exploration,
+    pub last_scan: Option<ScanReport>,
     accumulator: Duration,
 }
 impl Game {
@@ -34,7 +37,9 @@ impl Game {
             player: Player { x, y },
             survival: Survival::default(),
             planet: planet_name(seed),
-            message: "Landing zone secure. Explore the surface.",
+            message: "Landing zone secure. R scans for discoveries.".into(),
+            exploration: Exploration::default(),
+            last_scan: None,
             accumulator: Duration::ZERO,
         }
     }
@@ -47,13 +52,37 @@ impl Game {
                 let seed = self.world.seed();
                 *self = Self::new(seed);
                 self.state = State::Playing;
+                self.observe(false);
             }
             (State::Playing, Action::Move(dx, dy)) => {
                 self.message = if self.player.step(dx, dy, &mut self.world) {
-                    "Exploring the surface."
+                    self.observe(false);
+                    let tile = self.world.tile(self.player.x, self.player.y);
+                    tile.landmark
+                        .map_or("Exploring the surface.", |site| site.name())
                 } else {
                     "Route blocked: water, mountains or world boundary."
-                };
+                }
+                .into();
+                return true;
+            }
+            (State::Playing, Action::Scan) => {
+                let report = self.observe(true);
+                self.message = format!(
+                    "Scan: +{} cells, +{} sites. {}",
+                    report.new_cells,
+                    report.new_sites,
+                    report
+                        .sites
+                        .first()
+                        .map_or("No signals nearby.".into(), |site| format!(
+                            "{} at {},{}",
+                            site.kind.name(),
+                            site.x,
+                            site.y
+                        ))
+                );
+                self.last_scan = Some(report);
                 return true;
             }
             (State::Playing, Action::Pause) => self.state = State::Paused,
@@ -67,6 +96,10 @@ impl Game {
             self.accumulator = Duration::ZERO;
         }
         self.state != before
+    }
+    fn observe(&mut self, scan: bool) -> ScanReport {
+        self.exploration
+            .reveal(&mut self.world, self.player.x, self.player.y, scan)
     }
     /// Four fixed updates maximum; discard excess elapsed time after a stall.
     pub fn advance(&mut self, elapsed: Duration) -> bool {

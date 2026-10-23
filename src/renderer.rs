@@ -1,5 +1,6 @@
 use crate::{
     camera::{Camera, usable, viewport},
+    exploration::Visibility,
     game::{Game, State},
     ui::{hud, style},
     world::biome::Biome,
@@ -13,7 +14,7 @@ fn appearance(biome: Biome) -> (char, u8, u8) {
         Biome::Mountains => ('^', 7, 8),
         Biome::Water => ('~', 14, 4),
         Biome::Frozen => ('*', 15, 6),
-        Biome::Wasteland => (';', 13, 5),
+        Biome::Wasteland => (';', 13, 0),
     }
 }
 pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
@@ -36,8 +37,24 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
                 for y in 0..view.height {
                     for x in 0..view.width {
                         let (wx, wy) = camera.world_at(x, y);
-                        let (glyph, fg, bg) = appearance(game.world.tile(wx, wy).biome);
-                        map.put_char(x, y, glyph, style(fg, bg));
+                        let visibility = game.exploration.visibility(wx, wy);
+                        if visibility == Visibility::Unknown {
+                            map.put_char(x, y, '?', style(8, 0));
+                            continue;
+                        }
+                        let tile = game.world.tile(wx, wy);
+                        let (mut glyph, mut fg, mut bg) = appearance(tile.biome);
+                        if let Some(site) = tile.landmark {
+                            glyph = site.glyph();
+                            fg = site.colour();
+                            bg = 0;
+                        }
+                        let tile_style = if visibility == Visibility::Remembered {
+                            style(8, 0)
+                        } else {
+                            style(fg, bg)
+                        };
+                        map.put_char(x, y, glyph, tile_style);
                     }
                 }
                 let x = (i128::from(game.player.x) - i128::from(camera.x)) as u16;
@@ -45,6 +62,43 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
                 map.put_char(x, y, '@', style(15, 1));
             }
             hud(&mut canvas, game);
+            if let Some(report) = &game.last_scan
+                && size.width >= 80
+                && size.height >= 18
+            {
+                let width = 29;
+                let px = (i128::from(game.player.x) - i128::from(camera.x)) as u16;
+                let panel_x = if px >= size.width - width {
+                    0
+                } else {
+                    size.width - width
+                };
+                let mut panel = canvas.clip(Rect::new(panel_x, 3, width, 10));
+                panel.fill(style(7, 0));
+                panel.put_str(0, 0, "LAST SCAN / R rescan", style(14, 0));
+                panel.put_str(
+                    0,
+                    1,
+                    &format!("+{} cells / +{} sites", report.new_cells, report.new_sites),
+                    style(7, 0),
+                );
+                panel.put_str(0, 2, "i Iron  c Copper  s Silica", style(15, 0));
+                panel.put_str(0, 3, "# Ruins  O Arch  % Crater", style(7, 0));
+                for (row, site) in report.sites.iter().take(3).enumerate() {
+                    panel.put_str(
+                        0,
+                        4 + row as u16 * 2,
+                        &format!("{} {}", site.kind.glyph(), site.kind.name()),
+                        style(site.kind.colour(), 0),
+                    );
+                    panel.put_str(
+                        0,
+                        5 + row as u16 * 2,
+                        &format!("  {},{}", site.x, site.y),
+                        style(7, 0),
+                    );
+                }
+            }
             if game.state == State::Paused {
                 let text = " PAUSED | P/Enter Resume | M Menu ";
                 let x = size.width.saturating_sub(text.len() as u16) / 2;
@@ -67,7 +121,7 @@ pub fn render(game: &mut Game, surface: &mut Surface, size: Size) {
             canvas.put_str(
                 3,
                 size.height - 2,
-                "Terminal planetary exploration / Phase 1",
+                "Planetary exploration / Phase 1.1",
                 style(8, 0),
             );
         }
